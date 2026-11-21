@@ -37,8 +37,10 @@ Java on the framework (no AndroidX, no gradle).
 * **Presets** — `fps`, `performance`, `clean`, defined in Rust.
 * **Custom JSON** — `JSON` dialog with `Replace`, `Cancel`, and `.json file` (system file
   picker, JSON only, validated before it is accepted).
-* **Autosave** — the working set is stored in app storage on every change and on pause, so
-  you can leave the app without applying and come back to exactly what you had.
+* **Autosave** — edits you have not applied yet are kept in app storage, so leaving the app
+  loses nothing. The draft is versioned, only exists while it differs from the device file,
+  and is deleted as soon as the device file is read or an apply succeeds, so a stale draft can
+  never shadow what is actually on the device.
 * **Undo** — writes back the file as it was before the first apply (kept in app storage), or
   deletes it if there was none.
 * **AI prompt** — builds a ready-to-paste prompt (format rules, your client version, your
@@ -46,6 +48,13 @@ Java on the framework (no AndroidX, no gradle).
 * **Fails loudly** — a failed apply shows the failing command, its stderr and a probe
   (`uid`, `/data/local/tmp` mode, write test, target file mode, SELinux context), with a
   Copy button. Restart failures never hide a successful write.
+
+## Tested on
+
+Samsung SM-A526B (Android 14), Shizuku 13.6 running as `shell`, Roblox global 2.747.1486 and
+Roblox VNG 2.746.1264. Verified end-to-end: apply/read-back, restart of either client,
+presets, `.json` import (valid and invalid), 30 vs 240 FPS visible in the client's FPS overlay,
+missing-file first run, and the failure report with probe.
 
 ## Requirements
 

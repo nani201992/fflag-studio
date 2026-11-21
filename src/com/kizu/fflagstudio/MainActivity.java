@@ -51,6 +51,8 @@ public class MainActivity extends Activity {
     private static final int REQ_JSON = 7;
     /** a flag set is a few KB; anything near this is not a flag file */
     private static final int MAX_JSON_BYTES = 512 * 1024;
+    /** bump when the draft layout changes; older drafts are ignored and deleted */
+    private static final int DRAFT_VERSION = 2;
     private static final String PREFS = "fflagstudio";
     /** the two clients; both read the same flag file, the pick decides what gets restarted */
     private static final String[] TARGET_KEYS = {
@@ -70,6 +72,9 @@ public class MainActivity extends Activity {
     private AlertDialog jsonDialog;
     private EditText jsonBox;
     private String channelState = "";
+    /** device content as last read or written; null until we know it */
+    private TreeMap<String, String> baseline;
+    private boolean dirty;
 
     private final Shizuku.OnRequestPermissionResultListener permListener =
             (requestCode, grantResult) -> refreshChannel();
@@ -91,9 +96,9 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onPause() {
-        // autosave: in-progress edits survive being backgrounded or killed
+        // autosave only what differs from the device: a draft is "unapplied edits"
         commitRows();
-        saveDraft();
+        if (dirty || baseline == null || !flags.equals(baseline)) saveDraft();
         super.onPause();
     }
 
@@ -250,11 +255,22 @@ public class MainActivity extends Activity {
     private void saveDraft() {
         try {
             JSONObject wrapper = new JSONObject();
+            wrapper.put("v", DRAFT_VERSION);
             wrapper.put("flags", toJsonObject(flags));
             java.nio.file.Files.write(draftFile().toPath(),
                     wrapper.toString().getBytes(StandardCharsets.UTF_8));
+            dirty = true;
         } catch (Throwable ignored) {
         }
+    }
+
+    private void deleteDraft() {
+        try {
+            //noinspection ResultOfMethodCallIgnored
+            draftFile().delete();
+        } catch (Throwable ignored) {
+        }
+        dirty = false;
     }
 
     private TreeMap<String, String> readDraft() {
@@ -263,7 +279,13 @@ public class MainActivity extends Activity {
         try {
             String text = new String(java.nio.file.Files.readAllBytes(draft.toPath()),
                     StandardCharsets.UTF_8);
-            JSONObject obj = new JSONObject(text).getJSONObject("flags");
+            JSONObject wrapper = new JSONObject(text);
+            if (wrapper.optInt("v", 0) != DRAFT_VERSION) {
+                // stale layout (e.g. an empty snapshot from an older build): fall back to the device
+                deleteDraft();
+                return null;
+            }
+            JSONObject obj = wrapper.getJSONObject("flags");
             TreeMap<String, String> loaded = new TreeMap<>();
             for (Iterator<String> it = obj.keys(); it.hasNext(); ) {
                 String k = it.next();
@@ -401,6 +423,8 @@ public class MainActivity extends Activity {
                 if (text.isEmpty()) {
                     ui.post(() -> {
                         flags.clear();
+                        baseline = new TreeMap<>();
+                        deleteDraft();
                         render();
                         setStatus("no flags on device — start editing");
                     });
@@ -415,8 +439,9 @@ public class MainActivity extends Activity {
                 ui.post(() -> {
                     flags.clear();
                     flags.putAll(loaded);
+                    baseline = new TreeMap<>(loaded);
+                    deleteDraft();
                     render();
-                    saveDraft();
                     setStatus(loaded.size() + " flags on device");
                 });
             } catch (Throwable t) {
@@ -526,6 +551,8 @@ public class MainActivity extends Activity {
                     throw new IllegalStateException("read-back mismatch");
                 }
                 int n = new JSONObject(json).length();
+                baseline = new TreeMap<>(flags);
+                deleteDraft();
                 String msg = n + " flags written";
                 try {
                     String restarted = restartClients(target);
