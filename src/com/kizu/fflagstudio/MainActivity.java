@@ -24,7 +24,9 @@ import android.widget.RadioButton;
 import android.widget.RadioGroup;
 import android.widget.EditText;
 import android.widget.ImageView;
+import android.widget.BaseAdapter;
 import android.widget.LinearLayout;
+import android.widget.ListView;
 import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -36,7 +38,9 @@ import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.Iterator;
+import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
 import java.util.concurrent.ExecutorService;
@@ -44,7 +48,7 @@ import java.util.concurrent.Executors;
 
 import rikka.shizuku.Shizuku;
 
-public class MainActivity extends Activity {
+public class MainActivity extends Activity implements FlagAdapter.Host {
     private static final String FLAG_FILE = "/data/local/tmp/ClientAppSettings.json";
     private static final String[] PKGS = {"com.roblox.client", "com.roblox.client.vnggames"};
     private static final int REQ_SHIZUKU = 42;
@@ -65,7 +69,10 @@ public class MainActivity extends Activity {
     private final ExecutorService io = Executors.newSingleThreadExecutor();
     private final Handler ui = new Handler(Looper.getMainLooper());
 
-    private LinearLayout list;
+    private ListView list;
+    private TextView empty;
+    private FlagAdapter adapter;
+    private final List<String> visibleKeys = new ArrayList<>();
     private TextView status;
     private EditText search;
     private RadioGroup targets;
@@ -97,7 +104,7 @@ public class MainActivity extends Activity {
     @Override
     protected void onPause() {
         // autosave only what differs from the device: a draft is "unapplied edits"
-        commitRows();
+        commitFocused();
         if (dirty || baseline == null || !flags.equals(baseline)) saveDraft();
         super.onPause();
     }
@@ -119,7 +126,8 @@ public class MainActivity extends Activity {
 
     // ---------- UI ----------
 
-    private int dp(int v) {
+    @Override
+    public int dp(int v) {
         return Math.round(getResources().getDisplayMetrics().density * v);
     }
 
@@ -177,16 +185,28 @@ public class MainActivity extends Activity {
             render();
             return false;
         });
+        search.setOnKeyListener((v, code, e) -> {
+            render();
+            return false;
+        });
         root.addView(search);
 
-        ScrollView scroll = new ScrollView(this);
-        list = new LinearLayout(this);
-        list.setOrientation(LinearLayout.VERTICAL);
-        scroll.addView(list);
+        empty = new TextView(this);
+        empty.setTextColor(DIM);
+        empty.setPadding(0, dp(12), 0, 0);
+        root.addView(empty);
+
+        // ListView recycles row views: a 1300-flag set no longer builds 1300 EditTexts
+        list = new ListView(this);
+        list.setDivider(null);
+        list.setDividerHeight(0);
+        list.setSelector(android.R.color.transparent);
+        adapter = new FlagAdapter(this, this);
+        list.setAdapter(adapter);
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f);
         lp.topMargin = dp(8);
-        root.addView(scroll, lp);
+        root.addView(list, lp);
 
         TextView targetLabel = new TextView(this);
         targetLabel.setText("apply to");
@@ -339,77 +359,57 @@ public class MainActivity extends Activity {
     // ---------- rows ----------
 
     private void render() {
-        String needle = search.getText().toString().trim().toLowerCase();
-        list.removeAllViews();
-        int shown = 0;
-        for (Map.Entry<String, String> e : flags.entrySet()) {
-            if (!needle.isEmpty() && !e.getKey().toLowerCase().contains(needle)) continue;
-            list.addView(row(e.getKey(), e.getValue()));
-            shown++;
-        }
-        if (shown == 0) {
-            TextView empty = new TextView(this);
-            empty.setText(flags.isEmpty() ? "no flags yet — Add or Preset" : "no match");
-            empty.setTextColor(DIM);
-            empty.setPadding(0, dp(12), 0, 0);
-            list.addView(empty);
-        }
-    }
-
-    private View row(String key, String value) {
-        LinearLayout row = new LinearLayout(this);
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setPadding(0, dp(4), 0, dp(4));
-        row.setTag(key);
-
-        TextView name = new TextView(this);
-        name.setText(key);
-        name.setTextColor(TEXT);
-        name.setTextSize(12);
-        name.setTypeface(Typeface.MONOSPACE);
-        name.setPadding(0, 0, dp(8), 0);
-        row.addView(name, new LinearLayout.LayoutParams(0,
-                ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-
-        EditText val = new EditText(this);
-        val.setText(value);
-        val.setTextColor(VALUE);
-        val.setTextSize(12);
-        val.setTypeface(Typeface.MONOSPACE);
-        val.setSingleLine(true);
-        val.setTag("value");
-        val.setBackgroundTintList(ColorStateList.valueOf(0xFF33333C));
-        row.addView(val, new LinearLayout.LayoutParams(dp(96),
-                ViewGroup.LayoutParams.WRAP_CONTENT));
-
-        Button del = new Button(this);
-        del.setText("✕");
-        del.setTextSize(12);
-        del.setTextColor(0xFFFF6E6E);
-        del.setBackgroundColor(Color.TRANSPARENT);
-        del.setPadding(0, 0, 0, 0);
-        del.setOnClickListener(v -> {
-            commitRows();
-            flags.remove(key);
-            render();
-            saveDraft();
-        });
-        row.addView(del, new LinearLayout.LayoutParams(dp(38),
-                ViewGroup.LayoutParams.WRAP_CONTENT));
-        return row;
-    }
-
-    /** Pull edited values back out of the visible rows before rebuilding them. */
-    private void commitRows() {
-        for (int i = 0; i < list.getChildCount(); i++) {
-            View child = list.getChildAt(i);
-            Object tag = child.getTag();
-            if (!(tag instanceof String)) continue;
-            View valueView = child.findViewWithTag("value");
-            if (valueView instanceof EditText) {
-                flags.put((String) tag, ((EditText) valueView).getText().toString().trim());
+        commitFocused();
+        String needle = search.getText().toString().trim().toLowerCase(java.util.Locale.ROOT);
+        visibleKeys.clear();
+        for (String key : flags.keySet()) {
+            if (needle.isEmpty() || key.toLowerCase(java.util.Locale.ROOT).contains(needle)) {
+                visibleKeys.add(key);
             }
+        }
+        adapter.notifyDataSetChanged();
+        empty.setVisibility(visibleKeys.isEmpty() ? View.VISIBLE : View.GONE);
+        empty.setText(flags.isEmpty() ? "no flags yet — Add, Preset or JSON" : "no match");
+    }
+
+    // ---- FlagAdapter.Host ----
+
+    @Override
+    public int flagCount() {
+        return visibleKeys.size();
+    }
+
+    @Override
+    public String flagKeyAt(int position) {
+        return visibleKeys.get(position);
+    }
+
+    @Override
+    public String flagValue(String key) {
+        String value = flags.get(key);
+        return value == null ? "" : value;
+    }
+
+    @Override
+    public void onRowValue(String key, String value) {
+        flags.put(key, value);
+        saveDraft();
+    }
+
+    @Override
+    public void onDeleteFlag(String key) {
+        commitFocused();
+        flags.remove(key);
+        render();
+        saveDraft();
+    }
+
+    private void commitFocused() {
+        View focused = getCurrentFocus();
+        if (!(focused instanceof EditText)) return;
+        Object tag = focused.getTag();
+        if (tag instanceof String) {
+            flags.put((String) tag, ((EditText) focused).getText().toString().trim());
         }
     }
 
@@ -523,7 +523,7 @@ public class MainActivity extends Activity {
     }
 
     private void apply() {
-        commitRows();
+        commitFocused();
         if (!ShizukuShell.granted()) {
             if (ShizukuShell.alive()) {
                 ShizukuShell.request(REQ_SHIZUKU);
@@ -711,7 +711,7 @@ public class MainActivity extends Activity {
     }
 
     private void jsonDialog() {
-        commitRows();
+        commitFocused();
         jsonBox = new EditText(this);
         jsonBox.setTypeface(Typeface.MONOSPACE);
         jsonBox.setTextSize(12);
@@ -882,7 +882,7 @@ public class MainActivity extends Activity {
 
     /** Builds a ready-to-paste prompt for an AI, using this device's client + current set. */
     private void promptDialog() {
-        commitRows();
+        commitFocused();
         final String current;
         try {
             current = toJsonObject(flags).toString(2);
@@ -978,7 +978,7 @@ public class MainActivity extends Activity {
                 .setTitle("Preset")
                 .setItems(names, (d, which) -> {
                     try {
-                        commitRows();
+                        commitFocused();
                         JSONObject obj = new JSONObject(Core.presetJson(names[which]));
                         int added = 0;
                         for (Iterator<String> it = obj.keys(); it.hasNext(); ) {

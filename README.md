@@ -45,6 +45,9 @@ Java on the framework (no AndroidX, no gradle).
   * a bare name with no prefixed twin is written as both the `F` and the `DF` variant; the
     variant the client doesn't register is a no-op.
   * anything else is listed with its reason.
+* **Fast with big packs** — the list is a recycled `ListView`, so a 1300-flag set builds ~10
+  row views instead of 1300 (measured: 1% janky frames, 8 ms median frame while scrolling).
+  Row edits commit on focus loss, and `Apply` also commits the focused row.
 * **Autosave** — edits you have not applied yet are kept in app storage, so leaving the app
   loses nothing. The draft is versioned, only exists while it differs from the device file,
   and is deleted as soon as the device file is read or an apply succeeds, so a stale draft can
