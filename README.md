@@ -45,23 +45,24 @@ Java on the framework (no AndroidX, no gradle).
   * a bare name with no prefixed twin is written as both the `F` and the `DF` variant; the
     variant the client doesn't register is a no-op.
   * anything else is listed with its reason.
-* **Device tuning** — every import is fitted to the phone before it reaches the list. The tier
-  comes from RAM and cores (`low` <4 GB or ≤4 cores, `high` ≥7 GB and ≥8 cores, else `mid`), and
-  the Rust engine lowers what only a desktop can carry:
-  * `DFIntTaskSchedulerTargetFps` 240/99999 → 60 · 45 · 30
-  * `DFIntMaxFrameBufferSize` → 8 · 6 · 4, MSAA → 2 · 1 · 1, quality overrides capped
-  * `DFIntS2PhysicsSenderRate` → 20, `DFIntConnectionMTUSize` → 1400, CSG LOD distances capped
-  * PC-only switches (`D3D11`, `Win32`, `Windows`, `MacOS`) are removed — the Android client
-    never registers them
-  * on `low`, mesh preloading and volumetric audio are switched off
-  Caps only lower a value, so a pack tuned below the cap is left alone.
-* **Crash check** — `Optimize` reads the client crash buffer through the shell and classifies the
-  last crash as memory pressure, a graphics/GPU fault or a plain native crash, then applies the
-  matching levers (texture quality, MSAA, frame buffer, mesh preloading, fps). The report shows
-  the evidence it matched.
-* **Self-update** — the app asks the repo's latest release for its `.apk`, downloads it, decodes it
-  on the device (`base64 -d` over the Shizuku stdin) and runs `pm install -r` as uid 2000, so no
-  "unknown sources" prompt. The footer says when an update is waiting and installs on tap.
+* **Flag mechanics** (what this app assumes; checked against the Android build):
+  * the prefix carries the type and the lifetime: `Flag` bool, `Int` i64, `String`, `Log` u8;
+    `F` = read once at startup, `DF` = can be re-read at runtime, `SF` = server-synchronised.
+  * the client looks a flag up as `prefix + baseName`, so an unprefixed key never applies —
+    that is why the importer drops bare duplicates and expands orphan bare names to both variants.
+  * Roblox's Android cloud config is public
+    (`https://clientsettingscdn.roblox.com/v2/settings/application/AndroidApp`, ~25 500 names).
+    It is **not** a validity list: `FFlagDebugDisplayFPS` works and is absent from it, so absence
+    proves nothing. The same goes for the client binary: Roblox's scripts read flags too, so a
+    name missing from `libroblox.so` may still be live.
+  * values are typed, not scored: `"DFIntTaskSchedulerTargetFps": 99999` is legal and simply
+    means "don't cap me"; a big number is not automatically bad, and a low one is not automatically
+    safe. **This app never rewrites a value you set.**
+* **Optimize** acts only on evidence. It reads the client crash buffer
+  (`logcat -b crash`) and, if the last crash is for the selected client, applies the matching
+  levers — memory pressure (texture quality, frame buffer, MSAA, mesh preloading), graphics/GPU
+  fault (MSAA, quality level, frame buffer) or a plain native crash (fps, texture quality, MSAA).
+  The report shows the log lines it matched. With no crash it changes nothing and says so.
 * **Fast with big packs** — the list is a recycled `ListView`, so a 1300-flag set builds ~10
   row views instead of 1300 (measured: 1% janky frames, 8 ms median frame while scrolling).
   Row edits commit on focus loss, and `Apply` also commits the focused row.

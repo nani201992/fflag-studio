@@ -762,9 +762,7 @@ public class MainActivity extends Activity implements FlagAdapter.Host {
     private void replaceFromBox() {
         try {
             JSONObject imported = Core.importJson(jsonBox.getText().toString());
-            JSONObject tuned = Core.optimizeJson(imported.getJSONObject("flags").toString(),
-                    profile.tier);
-            JSONObject obj = tuned.getJSONObject("flags");
+            JSONObject obj = imported.getJSONObject("flags");
             flags.clear();
             int n = 0;
             for (Iterator<String> it = obj.keys(); it.hasNext(); ) {
@@ -774,10 +772,9 @@ public class MainActivity extends Activity implements FlagAdapter.Host {
             }
             render();
             saveDraft();
-            setStatus("replaced with " + n + " flags, tuned for " + profile.tier
-                    + " — press Apply to write");
+            setStatus("replaced with " + n + " flags — press Apply to write");
             jsonDialog.dismiss();
-            reportImport(imported, tuned);
+            reportImport(imported);
         } catch (Throwable t) {
             // keep the dialog open so the JSON can be fixed
             Toast.makeText(this, brief(t), Toast.LENGTH_LONG).show();
@@ -812,33 +809,26 @@ public class MainActivity extends Activity implements FlagAdapter.Host {
             }
             String text = readText(uri, MAX_JSON_BYTES);
             JSONObject imported = Core.importJson(text);
-            JSONObject tuned = Core.optimizeJson(imported.getJSONObject("flags").toString(),
-                    profile.tier);
-            JSONObject obj = tuned.getJSONObject("flags");
+            JSONObject obj = imported.getJSONObject("flags");
             if (jsonBox == null || jsonDialog == null || !jsonDialog.isShowing()) return;
             jsonBox.setText(obj.toString(2));
             jsonBox.setSelection(0);
-            setStatus(name + ": " + obj.length() + " flags, tuned for " + profile.tier
-                    + " — press Replace");
-            reportImport(imported, tuned);
+            setStatus(name + ": " + obj.length() + " valid flags — press Replace");
+            reportImport(imported);
         } catch (Throwable t) {
             Toast.makeText(this, brief(t), Toast.LENGTH_LONG).show();
         }
     }
 
     /** Explains what an import dropped, inferred or skipped, with the full list on demand. */
-    private void reportImport(JSONObject imported, JSONObject tuned) {
+    private void reportImport(JSONObject imported) {
         org.json.JSONArray aliased = imported.optJSONArray("aliased");
         org.json.JSONArray inferred = imported.optJSONArray("inferred");
         org.json.JSONArray skipped = imported.optJSONArray("skipped");
         int a = aliased == null ? 0 : aliased.length();
         int i = inferred == null ? 0 : inferred.length();
         int k = skipped == null ? 0 : skipped.length();
-        org.json.JSONArray changes = tuned == null ? null : tuned.optJSONArray("changes");
-        org.json.JSONArray removed = tuned == null ? null : tuned.optJSONArray("removed");
-        int c = changes == null ? 0 : changes.length();
-        int r = removed == null ? 0 : removed.length();
-        if (a + i + k + c + r == 0) return;
+        if (a + i + k == 0) return;
 
         StringBuilder body = new StringBuilder();
         if (a > 0) {
@@ -853,15 +843,7 @@ public class MainActivity extends Activity implements FlagAdapter.Host {
         }
         if (k > 0) {
             body.append("Skipped ").append(k).append(" key(s) that cannot be applied:\n")
-                    .append(join(skipped, 12)).append("\n\n");
-        }
-        if (c > 0) {
-            body.append("Tuned for this device (").append(profile.label).append("):\n")
-                    .append(join(changes, 12)).append("\n");
-        }
-        if (r > 0) {
-            body.append("Removed — PC-only, never applies on Android:\n")
-                    .append(join(removed, 12)).append("\n");
+                    .append(join(skipped, 12)).append("\n");
         }
         final String detail = body.toString().trim();
         try {
@@ -891,45 +873,39 @@ public class MainActivity extends Activity implements FlagAdapter.Host {
 
     // ---------- device tuning ----------
 
-    /** Tier caps + crash mitigation, reported together. */
+    /**
+     * Nothing is rewritten unless the client actually crashed: the log buffer is the only
+     * evidence this app has about the device, and flag values are typed settings, not a
+     * score (a high value is not automatically bad).
+     */
     private void optimizeAndReport() {
         commitFocused();
-        final String json = toJsonObject(flags).toString();
-        setStatus("optimizing for " + profile.label + "…");
+        setStatus("checking the client crash log…");
+        final String pkg = selectedTarget();
         io.execute(() -> {
             CrashScan scan;
             try {
-                scan = CrashScan.run(selectedTarget());
+                scan = CrashScan.run(pkg);
             } catch (Throwable t) {
                 scan = CrashScan.of("", "");
             }
-            try {
-                JSONObject tuned = Core.optimizeJson(json, profile.tier);
-                final CrashScan found = scan;
-                ui.post(() -> {
-                    applyOptimized(tuned);
-                    List<String> crashFix = CrashScan.NONE.equals(found.kind)
-                            ? new ArrayList<>() : applyMitigation(found.kind);
+            final CrashScan found = scan;
+            ui.post(() -> {
+                if (CrashScan.NONE.equals(found.kind)) {
+                    setStatus("no crash found — nothing changed");
+                    showReport("Optimize", "No crash for " + shortName(pkg)
+                            + " in the log since boot, so no value was changed.\n\n"
+                            + "Flags are typed settings read by the client (" + FLAG_FILE
+                            + "); a large value is legal and not automatically bad, so this"
+                            + " app only lowers things after a real crash.");
+                } else {
+                    List<String> fix = applyMitigation(found.kind);
                     render();
                     saveDraft();
-                    showOptimizeReport(tuned, found, crashFix);
-                });
-            } catch (Throwable t) {
-                ui.post(() -> showFailure("Optimize failed", t));
-            }
+                    showCrashReport(found, fix);
+                }
+            });
         });
-    }
-
-    private void applyOptimized(JSONObject tuned) {
-        try {
-            JSONObject after = tuned.getJSONObject("flags");
-            flags.clear();
-            for (Iterator<String> it = after.keys(); it.hasNext(); ) {
-                String k = it.next();
-                flags.put(k, display(after.get(k)));
-            }
-        } catch (Throwable ignored) {
-        }
     }
 
     /** The flag levers that matter for each crash family; returns what was set. */
@@ -950,7 +926,6 @@ public class MainActivity extends Activity implements FlagAdapter.Host {
                     {"FIntDebugForceMSAASamples", "1"},
                     {"DFIntDebugFRMQualityLevelOverride", "5"},
                     {"DFIntMaxFrameBufferSize", "6"},
-                    {"DFIntTextureQualityOverride", "2"},
             };
         } else {
             fix = new String[][]{
@@ -967,32 +942,17 @@ public class MainActivity extends Activity implements FlagAdapter.Host {
         return applied;
     }
 
-    private void showOptimizeReport(JSONObject tuned, CrashScan scan, List<String> crashFix) {
-        org.json.JSONArray changes = tuned.optJSONArray("changes");
-        org.json.JSONArray removed = tuned.optJSONArray("removed");
-        int c = changes == null ? 0 : changes.length();
-        int r = removed == null ? 0 : removed.length();
-
-        StringBuilder body = new StringBuilder("Device: ").append(profile.label).append("\n\n");
-        if (c > 0) {
-            body.append("Lowered for this device:\n").append(join(changes, 12)).append("\n");
-        }
-        if (r > 0) {
-            body.append("Removed — PC-only, never applies on Android:\n")
-                    .append(join(removed, 12)).append("\n");
-        }
-        if (CrashScan.NONE.equals(scan.kind)) {
-            body.append("Crash: ").append(scan.evidence).append("\n");
-        } else {
-            body.append("Crash: ").append(scan.kind).append(" — ").append(scan.evidence.trim())
-                    .append("\n\nCrash fixes applied:\n");
-            for (String line : crashFix) body.append("  ").append(line).append("\n");
-        }
+    private void showCrashReport(CrashScan scan, List<String> fix) {
+        StringBuilder body = new StringBuilder("Device: ").append(profile.label).append("\n")
+                .append("Crash: ").append(scan.kind).append("\n\n")
+                .append(scan.evidence.trim()).append("\n\nFixes applied:\n");
+        for (String line : fix) body.append("  ").append(line).append("\n");
+        body.append("\nPress Apply to write them. ");
+        body.append("The log tells the family (memory / graphics / native), not the exact flag — ");
+        body.append("if it keeps crashing, press Undo and drop your most recent additions.");
         final String detail = body.toString().trim();
-        int total = c + r + crashFix.size();
-        setStatus(total == 0 ? "already tuned for " + profile.tier
-                : "tuned " + total + " flag(s) for " + profile.tier);
-        showReport("Optimize report", detail);
+        setStatus("crash found (" + scan.kind + ") — " + fix.size() + " fix(es) staged");
+        showReport("Crash report", detail);
     }
 
     private void showReport(String title, final String detail) {

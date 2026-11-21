@@ -12,7 +12,6 @@ final class Core {
 
     private static native String normalize(String json);
     private static native String importFlags(String json);
-    private static native String optimizeFlags(String json, String tier);
     private static native String normalizeOne(String key, String value);
     private static native String preset(String name);
 
@@ -39,20 +38,6 @@ final class Core {
     static JSONObject importJson(String json) {
         try {
             return new JSONObject(unwrap(importFlags(json)));
-        } catch (org.json.JSONException e) {
-            throw new IllegalStateException("engine reply unreadable");
-        }
-    }
-
-    /**
-     * Fits a flag set to the device tier: caps values only a desktop can carry, drops
-     * PC-only keys, and switches off the heaviest features on the low tier.
-     *
-     * @return {"flags":{…},"changes":[…],"removed":[…]}
-     */
-    static JSONObject optimizeJson(String flags, String tier) {
-        try {
-            return new JSONObject(unwrap(optimizeFlags(flags, tier)));
         } catch (org.json.JSONException e) {
             throw new IllegalStateException("engine reply unreadable");
         }

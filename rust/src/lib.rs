@@ -171,96 +171,6 @@ fn normalize_all(input: &str) -> Result<Map<String, Value>, String> {
     Ok(out)
 }
 
-// ---------- device tuning ----------
-
-/// A flag whose value is capped per device tier `[low, mid, high]`.
-/// Caps only lower a value: a pack tuned below the cap is left alone.
-struct Cap {
-    key: &'static str,
-    caps: [i64; 3],
-    why: &'static str,
-}
-
-const CAPS: &[Cap] = &[
-    Cap { key: "DFIntTaskSchedulerTargetFps", caps: [30, 45, 60], why: "fps this device can hold" },
-    Cap { key: "FIntTaskSchedulerTargetFps", caps: [30, 45, 60], why: "fps this device can hold" },
-    Cap { key: "DFIntMaxFrameBufferSize", caps: [4, 6, 8], why: "frame buffer memory" },
-    Cap { key: "FIntDebugForceMSAASamples", caps: [1, 1, 2], why: "MSAA cost" },
-    Cap { key: "FIntMSAASampleCount", caps: [1, 1, 2], why: "MSAA cost" },
-    Cap { key: "DFIntDebugFRMQualityLevelOverride", caps: [5, 8, 10], why: "render quality level" },
-    Cap { key: "DFIntTextureQualityOverride", caps: [1, 2, 3], why: "texture quality" },
-    Cap { key: "DFIntS2PhysicsSenderRate", caps: [15, 20, 20], why: "physics packet rate" },
-    Cap { key: "DFIntConnectionMTUSize", caps: [1400, 1400, 1400], why: "MTU above 1400 fragments" },
-    Cap { key: "DFIntCSGLevelOfDetailSwitchingDistance", caps: [100, 200, 400], why: "CSG LOD distance" },
-    Cap { key: "DFIntCSGLevelOfDetailSwitchingDistanceL12", caps: [200, 400, 800], why: "CSG LOD distance" },
-    Cap { key: "DFIntCSGLevelOfDetailSwitchingDistanceL23", caps: [400, 800, 1600], why: "CSG LOD distance" },
-    Cap { key: "DFIntCSGLevelOfDetailSwitchingDistanceL34", caps: [800, 1600, 3200], why: "CSG LOD distance" },
-];
-
-/// Switched off on the low tier only: each one is heavy on a 4 GB / 4-core phone.
-const HEAVY_ON_LOW: &[&str] = &[
-    "DFFlagEnableMeshPreloading",
-    "DFFlagEnableMeshPreloading2",
-    "DFFlagAudioEnableVolumetricPanningForMeshes",
-    "DFFlagAudioEnableVolumetricPanningForPolys",
-    "DFFlagAssetPreloadingUrlVersionEnabled2",
-];
-
-/// Desktop-only switches: the Android client never registers these names.
-fn is_pc_only(key: &str) -> bool {
-    ["D3D", "DirectX", "Win32", "MacOS", "Windows"]
-        .iter()
-        .any(|m| key.contains(m))
-}
-
-fn tier_index(tier: &str) -> usize {
-    match tier {
-        "low" => 0,
-        "high" => 2,
-        _ => 1,
-    }
-}
-
-/// Fit a flag set to the device: lower values that only a desktop can carry, drop PC-only
-/// switches, and switch off the heaviest features on the low tier.
-fn optimize_all(
-    input: &str,
-    tier: &str,
-) -> Result<(Map<String, Value>, Vec<String>, Vec<String>), String> {
-    let parsed: Value = serde_json::from_str(input).map_err(|e| format!("invalid JSON: {e}"))?;
-    let obj = parsed.as_object().ok_or("top level must be an object")?;
-    let t = tier_index(tier);
-    let mut out = Map::new();
-    let mut changes = Vec::new();
-    let mut removed = Vec::new();
-
-    for (key, val) in obj {
-        let kind = match kind_of(key) {
-            Some(kind) => kind,
-            None => continue, // import already reported bare names
-        };
-        if is_pc_only(key) {
-            removed.push(key.clone());
-            continue;
-        }
-        let mut canon = normalize(kind, val).map_err(|e| format!("{key}: {e}"))?;
-        if let Some(cap) = CAPS.iter().find(|c| c.key == key) {
-            if let Some(n) = canon.as_i64() {
-                if n > cap.caps[t] {
-                    changes.push(format!("{key}: {n} → {} ({})", cap.caps[t], cap.why));
-                    canon = json!(cap.caps[t]);
-                }
-            }
-        }
-        if t == 0 && HEAVY_ON_LOW.contains(&key.as_str()) && canon == json!(true) {
-            changes.push(format!("{key}: true → false (too heavy for a low-tier device)"));
-            canon = json!(false);
-        }
-        out.insert(key.clone(), canon);
-    }
-    Ok((out, changes, removed))
-}
-
 fn reply(env: &mut JNIEnv, ok: bool, body: String) -> jstring {
     let payload = json!({ "ok": ok, "result": body }).to_string();
     env.new_string(payload)
@@ -302,31 +212,6 @@ pub extern "system" fn Java_com_kizu_fflagstudio_Core_importFlags(
                 "aliased": aliased,
                 "inferred": inferred,
                 "skipped": skipped
-            })
-            .to_string()
-        })
-    });
-    match out {
-        Ok(body) => reply(&mut env, true, body),
-        Err(e) => reply(&mut env, false, e),
-    }
-}
-
-/// Per-device tuning: returns the fitted set plus what was lowered or dropped.
-#[no_mangle]
-pub extern "system" fn Java_com_kizu_fflagstudio_Core_optimizeFlags(
-    mut env: JNIEnv,
-    _class: JClass,
-    flags: JString,
-    tier: JString,
-) -> jstring {
-    let out = read(&mut env, &flags).and_then(|f| {
-        let level = read(&mut env, &tier)?;
-        optimize_all(&f, &level).map(|(flags, changes, removed)| {
-            json!({
-                "flags": Value::Object(flags),
-                "changes": changes,
-                "removed": removed
             })
             .to_string()
         })
@@ -442,32 +327,6 @@ mod tests {
         assert_eq!(skipped.len(), 1); // only FFlagC has a bad value
         assert!(inferred.len() == 1 && inferred[0].starts_with("CSGLevelOfDetailSwitchingDistance"));
         assert!(aliased.is_empty());
-    }
-
-    #[test]
-    fn optimize_caps_desktop_values_and_drops_pc_only_keys() {
-        let (flags, changes, removed) = optimize_all(
-            r#"{"DFIntTaskSchedulerTargetFps":"240","DFIntS2PhysicsSenderRate":"5",
-                "FFlagDebugGraphicsPreferD3D11":"true","DFFlagEnableMeshPreloading":"true"}"#,
-            "low",
-        )
-        .unwrap();
-        assert_eq!(flags["DFIntTaskSchedulerTargetFps"], json!(30));
-        // never raised
-        assert_eq!(flags["DFIntS2PhysicsSenderRate"], json!(5));
-        assert_eq!(flags["DFFlagEnableMeshPreloading"], json!(false));
-        assert!(removed.contains(&"FFlagDebugGraphicsPreferD3D11".to_string()));
-        assert_eq!(changes.len(), 2);
-    }
-
-    #[test]
-    fn optimize_leaves_a_high_tier_set_alone() {
-        let (flags, changes, removed) =
-            optimize_all(r#"{"DFIntTaskSchedulerTargetFps":"60","DFIntMaxFrameBufferSize":8}"#, "high")
-                .unwrap();
-        assert_eq!(flags["DFIntTaskSchedulerTargetFps"], json!(60));
-        assert!(changes.is_empty());
-        assert!(removed.is_empty());
     }
 
     #[test]
