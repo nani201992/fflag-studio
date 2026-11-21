@@ -79,6 +79,11 @@ public class MainActivity extends Activity implements FlagAdapter.Host {
     private AlertDialog jsonDialog;
     private EditText jsonBox;
     private String channelState = "";
+    private DeviceProfile profile;
+    private TextView footer;
+    /** newest release tag when it is ahead of this build, else null */
+    private String pendingUpdate;
+    private String pendingUpdateUrl;
     /** device content as last read or written; null until we know it */
     private TreeMap<String, String> baseline;
     private boolean dirty;
@@ -90,6 +95,7 @@ public class MainActivity extends Activity implements FlagAdapter.Host {
     @Override
     protected void onCreate(Bundle b) {
         super.onCreate(b);
+        profile = DeviceProfile.of(this);
         setContentView(buildUi());
         getWindow().setSoftInputMode(
                 android.view.WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN);
@@ -99,6 +105,7 @@ public class MainActivity extends Activity implements FlagAdapter.Host {
         Shizuku.addBinderReceivedListenerSticky(binderListener);
         refreshChannel();
         restoreOrLoad();
+        checkUpdate(false);
     }
 
     @Override
@@ -173,6 +180,12 @@ public class MainActivity extends Activity implements FlagAdapter.Host {
         buttons2.addView(button("Apply", v -> apply()));
         root.addView(buttons2);
 
+        LinearLayout buttons3 = new LinearLayout(this);
+        buttons3.setOrientation(LinearLayout.HORIZONTAL);
+        buttons3.addView(button("Optimize", v -> optimizeAndReport()));
+        buttons3.addView(button("Update", v -> checkUpdate(true)));
+        root.addView(buttons3);
+
         search = new EditText(this);
         search.setHint("filter");
         search.setHintTextColor(DIM);
@@ -235,12 +248,14 @@ public class MainActivity extends Activity implements FlagAdapter.Host {
                 prefs.edit().putInt("target", checked).apply());
         root.addView(targets);
 
-        TextView footer = new TextView(this);
-        footer.setText("v" + versionName() + " · writes " + FLAG_FILE
-                + " through Shizuku (uid 2000, no root)");
+        footer = new TextView(this);
         footer.setTextColor(0xFF6E6E78);
         footer.setTextSize(11);
+        footer.setOnClickListener(v -> {
+            if (pendingUpdate != null) installUpdate();
+        });
         root.addView(footer);
+        footerRefresh();
         return root;
     }
 
@@ -747,7 +762,9 @@ public class MainActivity extends Activity implements FlagAdapter.Host {
     private void replaceFromBox() {
         try {
             JSONObject imported = Core.importJson(jsonBox.getText().toString());
-            JSONObject obj = imported.getJSONObject("flags");
+            JSONObject tuned = Core.optimizeJson(imported.getJSONObject("flags").toString(),
+                    profile.tier);
+            JSONObject obj = tuned.getJSONObject("flags");
             flags.clear();
             int n = 0;
             for (Iterator<String> it = obj.keys(); it.hasNext(); ) {
@@ -757,9 +774,10 @@ public class MainActivity extends Activity implements FlagAdapter.Host {
             }
             render();
             saveDraft();
-            setStatus("replaced with " + n + " flags — press Apply to write");
+            setStatus("replaced with " + n + " flags, tuned for " + profile.tier
+                    + " — press Apply to write");
             jsonDialog.dismiss();
-            reportImport(imported);
+            reportImport(imported, tuned);
         } catch (Throwable t) {
             // keep the dialog open so the JSON can be fixed
             Toast.makeText(this, brief(t), Toast.LENGTH_LONG).show();
@@ -794,26 +812,33 @@ public class MainActivity extends Activity implements FlagAdapter.Host {
             }
             String text = readText(uri, MAX_JSON_BYTES);
             JSONObject imported = Core.importJson(text);
-            JSONObject obj = imported.getJSONObject("flags");
+            JSONObject tuned = Core.optimizeJson(imported.getJSONObject("flags").toString(),
+                    profile.tier);
+            JSONObject obj = tuned.getJSONObject("flags");
             if (jsonBox == null || jsonDialog == null || !jsonDialog.isShowing()) return;
             jsonBox.setText(obj.toString(2));
             jsonBox.setSelection(0);
-            setStatus(name + ": " + obj.length() + " valid flags — press Replace");
-            reportImport(imported);
+            setStatus(name + ": " + obj.length() + " flags, tuned for " + profile.tier
+                    + " — press Replace");
+            reportImport(imported, tuned);
         } catch (Throwable t) {
             Toast.makeText(this, brief(t), Toast.LENGTH_LONG).show();
         }
     }
 
     /** Explains what an import dropped, inferred or skipped, with the full list on demand. */
-    private void reportImport(JSONObject imported) {
+    private void reportImport(JSONObject imported, JSONObject tuned) {
         org.json.JSONArray aliased = imported.optJSONArray("aliased");
         org.json.JSONArray inferred = imported.optJSONArray("inferred");
         org.json.JSONArray skipped = imported.optJSONArray("skipped");
         int a = aliased == null ? 0 : aliased.length();
         int i = inferred == null ? 0 : inferred.length();
         int k = skipped == null ? 0 : skipped.length();
-        if (a + i + k == 0) return;
+        org.json.JSONArray changes = tuned == null ? null : tuned.optJSONArray("changes");
+        org.json.JSONArray removed = tuned == null ? null : tuned.optJSONArray("removed");
+        int c = changes == null ? 0 : changes.length();
+        int r = removed == null ? 0 : removed.length();
+        if (a + i + k + c + r == 0) return;
 
         StringBuilder body = new StringBuilder();
         if (a > 0) {
@@ -828,7 +853,15 @@ public class MainActivity extends Activity implements FlagAdapter.Host {
         }
         if (k > 0) {
             body.append("Skipped ").append(k).append(" key(s) that cannot be applied:\n")
-                    .append(join(skipped, 12)).append("\n");
+                    .append(join(skipped, 12)).append("\n\n");
+        }
+        if (c > 0) {
+            body.append("Tuned for this device (").append(profile.label).append("):\n")
+                    .append(join(changes, 12)).append("\n");
+        }
+        if (r > 0) {
+            body.append("Removed — PC-only, never applies on Android:\n")
+                    .append(join(removed, 12)).append("\n");
         }
         final String detail = body.toString().trim();
         try {
@@ -854,6 +887,185 @@ public class MainActivity extends Activity implements FlagAdapter.Host {
         }
         if (array.length() > limit) sb.append("  …and ").append(array.length() - limit).append(" more\n");
         return sb.toString();
+    }
+
+    // ---------- device tuning ----------
+
+    /** Tier caps + crash mitigation, reported together. */
+    private void optimizeAndReport() {
+        commitFocused();
+        final String json = toJsonObject(flags).toString();
+        setStatus("optimizing for " + profile.label + "…");
+        io.execute(() -> {
+            CrashScan scan;
+            try {
+                scan = CrashScan.run(selectedTarget());
+            } catch (Throwable t) {
+                scan = CrashScan.of("", "");
+            }
+            try {
+                JSONObject tuned = Core.optimizeJson(json, profile.tier);
+                final CrashScan found = scan;
+                ui.post(() -> {
+                    applyOptimized(tuned);
+                    List<String> crashFix = CrashScan.NONE.equals(found.kind)
+                            ? new ArrayList<>() : applyMitigation(found.kind);
+                    render();
+                    saveDraft();
+                    showOptimizeReport(tuned, found, crashFix);
+                });
+            } catch (Throwable t) {
+                ui.post(() -> showFailure("Optimize failed", t));
+            }
+        });
+    }
+
+    private void applyOptimized(JSONObject tuned) {
+        try {
+            JSONObject after = tuned.getJSONObject("flags");
+            flags.clear();
+            for (Iterator<String> it = after.keys(); it.hasNext(); ) {
+                String k = it.next();
+                flags.put(k, display(after.get(k)));
+            }
+        } catch (Throwable ignored) {
+        }
+    }
+
+    /** The flag levers that matter for each crash family; returns what was set. */
+    private List<String> applyMitigation(String kind) {
+        String[][] fix;
+        if ("memory".equals(kind)) {
+            fix = new String[][]{
+                    {"DFIntTextureQualityOverride", "1"},
+                    {"DFIntMaxFrameBufferSize", "4"},
+                    {"FIntDebugForceMSAASamples", "1"},
+                    {"DFIntTaskSchedulerTargetFps", "30"},
+                    {"DFFlagEnableMeshPreloading", "false"},
+                    {"DFFlagEnableMeshPreloading2", "false"},
+                    {"DFFlagAudioEnableVolumetricPanningForMeshes", "false"},
+            };
+        } else if ("graphics".equals(kind)) {
+            fix = new String[][]{
+                    {"FIntDebugForceMSAASamples", "1"},
+                    {"DFIntDebugFRMQualityLevelOverride", "5"},
+                    {"DFIntMaxFrameBufferSize", "6"},
+                    {"DFIntTextureQualityOverride", "2"},
+            };
+        } else {
+            fix = new String[][]{
+                    {"DFIntTaskSchedulerTargetFps", "30"},
+                    {"DFIntTextureQualityOverride", "2"},
+                    {"FIntDebugForceMSAASamples", "1"},
+            };
+        }
+        List<String> applied = new ArrayList<>();
+        for (String[] kv : fix) {
+            flags.put(kv[0], kv[1]);
+            applied.add(kv[0] + " = " + kv[1]);
+        }
+        return applied;
+    }
+
+    private void showOptimizeReport(JSONObject tuned, CrashScan scan, List<String> crashFix) {
+        org.json.JSONArray changes = tuned.optJSONArray("changes");
+        org.json.JSONArray removed = tuned.optJSONArray("removed");
+        int c = changes == null ? 0 : changes.length();
+        int r = removed == null ? 0 : removed.length();
+
+        StringBuilder body = new StringBuilder("Device: ").append(profile.label).append("\n\n");
+        if (c > 0) {
+            body.append("Lowered for this device:\n").append(join(changes, 12)).append("\n");
+        }
+        if (r > 0) {
+            body.append("Removed — PC-only, never applies on Android:\n")
+                    .append(join(removed, 12)).append("\n");
+        }
+        if (CrashScan.NONE.equals(scan.kind)) {
+            body.append("Crash: ").append(scan.evidence).append("\n");
+        } else {
+            body.append("Crash: ").append(scan.kind).append(" — ").append(scan.evidence.trim())
+                    .append("\n\nCrash fixes applied:\n");
+            for (String line : crashFix) body.append("  ").append(line).append("\n");
+        }
+        final String detail = body.toString().trim();
+        int total = c + r + crashFix.size();
+        setStatus(total == 0 ? "already tuned for " + profile.tier
+                : "tuned " + total + " flag(s) for " + profile.tier);
+        showReport("Optimize report", detail);
+    }
+
+    private void showReport(String title, final String detail) {
+        try {
+            new AlertDialog.Builder(this)
+                    .setTitle(title)
+                    .setMessage(detail)
+                    .setPositiveButton("OK", null)
+                    .setNeutralButton("Copy", (d, w) -> {
+                        ClipboardManager cb =
+                                (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+                        if (cb != null) cb.setPrimaryClip(ClipData.newPlainText("fflag report", detail));
+                        Toast.makeText(this, "copied", Toast.LENGTH_SHORT).show();
+                    })
+                    .show();
+        } catch (Throwable ignored) {
+        }
+    }
+
+    // ---------- self-update ----------
+
+    private void footerRefresh() {
+        if (footer == null) return;
+        StringBuilder text = new StringBuilder();
+        if (pendingUpdate != null) {
+            text.append("update ").append(pendingUpdate).append(" available — tap here to install\n");
+        }
+        text.append("v").append(versionName());
+        if (profile != null) text.append(" · ").append(profile.label);
+        text.append(" · writes ").append(FLAG_FILE).append(" through Shizuku (uid 2000, no root)");
+        footer.setText(text.toString());
+    }
+
+    /** Silent on launch; interactive when the Update button asked. */
+    private void checkUpdate(boolean interactive) {
+        if (interactive) setStatus("checking for updates…");
+        io.execute(() -> {
+            try {
+                Updater.Release release = Updater.latest();
+                if (Updater.newer(release.tag, versionName())) {
+                    pendingUpdate = release.tag;
+                    pendingUpdateUrl = release.apkUrl;
+                    ui.post(() -> {
+                        footerRefresh();
+                        if (interactive) {
+                            setStatus("update " + release.tag + " available — tap the footer");
+                        }
+                    });
+                } else if (interactive) {
+                    ui.post(() -> setStatus("v" + versionName() + " is the latest"));
+                }
+            } catch (Throwable t) {
+                if (interactive) ui.post(() -> setStatus("update check failed: " + brief(t)));
+            }
+        });
+    }
+
+    private void installUpdate() {
+        if (!ShizukuShell.granted()) {
+            setStatus("grant Shizuku first");
+            return;
+        }
+        final String url = pendingUpdateUrl;
+        final String tag = pendingUpdate;
+        setStatus("downloading " + tag + "…");
+        io.execute(() -> {
+            try {
+                String out = Updater.install(url);
+                ui.post(() -> setStatus("installed " + tag + " (" + out + ") — open the app again"));
+            } catch (Throwable t) {
+                ui.post(() -> showFailure("Update failed", t));
+            }
+        });
     }
 
     private String displayName(Uri uri) {

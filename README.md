@@ -45,6 +45,23 @@ Java on the framework (no AndroidX, no gradle).
   * a bare name with no prefixed twin is written as both the `F` and the `DF` variant; the
     variant the client doesn't register is a no-op.
   * anything else is listed with its reason.
+* **Device tuning** — every import is fitted to the phone before it reaches the list. The tier
+  comes from RAM and cores (`low` <4 GB or ≤4 cores, `high` ≥7 GB and ≥8 cores, else `mid`), and
+  the Rust engine lowers what only a desktop can carry:
+  * `DFIntTaskSchedulerTargetFps` 240/99999 → 60 · 45 · 30
+  * `DFIntMaxFrameBufferSize` → 8 · 6 · 4, MSAA → 2 · 1 · 1, quality overrides capped
+  * `DFIntS2PhysicsSenderRate` → 20, `DFIntConnectionMTUSize` → 1400, CSG LOD distances capped
+  * PC-only switches (`D3D11`, `Win32`, `Windows`, `MacOS`) are removed — the Android client
+    never registers them
+  * on `low`, mesh preloading and volumetric audio are switched off
+  Caps only lower a value, so a pack tuned below the cap is left alone.
+* **Crash check** — `Optimize` reads the client crash buffer through the shell and classifies the
+  last crash as memory pressure, a graphics/GPU fault or a plain native crash, then applies the
+  matching levers (texture quality, MSAA, frame buffer, mesh preloading, fps). The report shows
+  the evidence it matched.
+* **Self-update** — the app asks the repo's latest release for its `.apk`, downloads it, decodes it
+  on the device (`base64 -d` over the Shizuku stdin) and runs `pm install -r` as uid 2000, so no
+  "unknown sources" prompt. The footer says when an update is waiting and installs on tap.
 * **Fast with big packs** — the list is a recycled `ListView`, so a 1300-flag set builds ~10
   row views instead of 1300 (measured: 1% janky frames, 8 ms median frame while scrolling).
   Row edits commit on focus loss, and `Apply` also commits the focused row.
