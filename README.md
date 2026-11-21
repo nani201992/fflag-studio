@@ -74,6 +74,11 @@ Java on the framework (no AndroidX, no gradle).
 * **Fails loudly** — a failed apply shows the failing command, its stderr and a probe
   (`uid`, `/data/local/tmp` mode, write test, target file mode, SELinux context), with a
   Copy button. Restart failures never hide a successful write.
+## Installation ( android )
+1. install shizuku
+2. grant shizuku for fflag studio
+3. add fflags
+4. press apply then it immediately start roblox
 
 ## Tested on
 
