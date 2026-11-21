@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A flag: the thing the app edits. Content kept inside the 72dp adaptive safe zone. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- pole -->
+    <path
+        android:fillColor="#8C6BFF"
+        android:pathData="M41,26h6v58h-6z" />
+
+    <!-- base shadow under the pole -->
+    <path
+        android:fillColor="#5B45A8"
+        android:pathData="M36,84h22v3h-22z" />
+
+    <!-- pennant -->
+    <path
+        android:fillColor="#FFD54F"
+        android:pathData="M47,30 L82,44 L47,58 Z" />
+</vector>

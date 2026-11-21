@@ -1,0 +1,4 @@
+out/
+*.apk
+.idea/
+*.iml
