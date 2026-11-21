@@ -15,8 +15,10 @@ enum Kind {
 }
 
 fn kind_of(key: &str) -> Option<Kind> {
+    // FLog/DFLog are log-level integers and are real client flags too
     [("DFFlag", Kind::Flag), ("FFlag", Kind::Flag), ("DFInt", Kind::Int),
-     ("FInt", Kind::Int), ("DFString", Kind::Str), ("FString", Kind::Str)]
+     ("FInt", Kind::Int), ("DFLog", Kind::Int), ("FLog", Kind::Int),
+     ("DFString", Kind::Str), ("FString", Kind::Str)]
         .iter()
         .find(|(p, _)| key.starts_with(p))
         .map(|(_, k)| *k)
@@ -59,6 +61,102 @@ fn normalize(kind: Kind, v: &Value) -> Result<Value, String> {
     }
 }
 
+/// Type implied by a value when the key has no prefix.
+fn kind_from_value(v: &Value) -> Option<Kind> {
+    match v {
+        Value::Bool(_) => Some(Kind::Flag),
+        Value::Number(_) => Some(Kind::Int),
+        Value::String(s) => {
+            let t = s.trim();
+            let low = t.to_ascii_lowercase();
+            if low == "true" || low == "false" {
+                Some(Kind::Flag)
+            } else if t.parse::<i64>().is_ok() {
+                Some(Kind::Int)
+            } else {
+                Some(Kind::Str)
+            }
+        }
+        _ => None,
+    }
+}
+
+fn type_name(k: Kind) -> &'static str {
+    match k {
+        Kind::Flag => "Flag",
+        Kind::Int => "Int",
+        Kind::Str => "String",
+    }
+}
+
+/// Import: keep every key we understand, report the rest instead of failing the whole file.
+///
+/// Flags are looked up by `prefix + baseName`, so keys without a prefix never apply. Two
+/// cases show up in real flag files: a bare name that also appears prefixed in the same file
+/// (drop it, the prefixed one is the live one) and an orphan bare name (write both the F and
+/// the DF variant; the unregistered one is a no-op).
+fn import_all(input: &str) -> Result<(Map<String, Value>, Vec<String>, Vec<String>, Vec<String>), String> {
+    let parsed: Value = serde_json::from_str(input).map_err(|e| format!("invalid JSON: {e}"))?;
+    let obj = parsed.as_object().ok_or("top level must be an object")?;
+    let mut out = Map::new();
+    let mut aliased = Vec::new();
+    let mut inferred = Vec::new();
+    let mut skipped = Vec::new();
+    let prefixed: Vec<String> = obj
+        .keys()
+        .filter(|k| kind_of(k).is_some())
+        .cloned()
+        .collect();
+
+    for (key, val) in obj {
+        if let Some(kind) = kind_of(key) {
+            match normalize(kind, val) {
+                Ok(canon) => {
+                    out.insert(key.clone(), canon);
+                }
+                Err(e) => skipped.push(format!("{key}: {e}")),
+            }
+        }
+    }
+
+    for (key, val) in obj {
+        if kind_of(key).is_some() {
+            continue;
+        }
+        let siblings: Vec<&String> = prefixed
+            .iter()
+            .filter(|k| k.len() > key.len() && k.ends_with(key.as_str()))
+            .collect();
+        if !siblings.is_empty() {
+            aliased.push(format!(
+                "{key} -> {}",
+                siblings
+                    .iter()
+                    .map(|s| s.as_str())
+                    .collect::<Vec<_>>()
+                    .join(" / ")
+            ));
+            continue;
+        }
+        match kind_from_value(val) {
+            Some(kind) => {
+                let t = type_name(kind);
+                for prefix in ["F", "DF"] {
+                    let full = format!("{prefix}{t}{key}");
+                    if !out.contains_key(&full) {
+                        if let Ok(canon) = normalize(kind, val) {
+                            out.insert(full, canon);
+                        }
+                    }
+                }
+                inferred.push(format!("{key} -> F{t}{key} + DF{t}{key}"));
+            }
+            None => skipped.push(format!("{key}: untyped value {val}")),
+        }
+    }
+    Ok((out, aliased, inferred, skipped))
+}
+
 /// Normalise every flag, dropping unknown prefixes.
 fn normalize_all(input: &str) -> Result<Map<String, Value>, String> {
     let parsed: Value = serde_json::from_str(input).map_err(|e| format!("invalid JSON: {e}"))?;
@@ -97,6 +195,29 @@ pub extern "system" fn Java_com_kizu_fflagstudio_Core_normalize(
     });
     match out {
         Ok(json) => reply(&mut env, true, json),
+        Err(e) => reply(&mut env, false, e),
+    }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_kizu_fflagstudio_Core_importFlags(
+    mut env: JNIEnv,
+    _class: JClass,
+    input: JString,
+) -> jstring {
+    let out = read(&mut env, &input).and_then(|text| {
+        import_all(&text).map(|(flags, aliased, inferred, skipped)| {
+            json!({
+                "flags": Value::Object(flags),
+                "aliased": aliased,
+                "inferred": inferred,
+                "skipped": skipped
+            })
+            .to_string()
+        })
+    });
+    match out {
+        Ok(body) => reply(&mut env, true, body),
         Err(e) => reply(&mut env, false, e),
     }
 }
@@ -186,6 +307,41 @@ mod tests {
         assert!(normalize_all(r#"{"DFIntB":"lots"}"#).is_err());
         assert!(normalize_all(r#"{"DebugThing":true}"#).is_err());
         assert!(normalize_all("[]").is_err());
+    }
+
+    #[test]
+    fn log_prefixes_are_integers() {
+        let m = normalize_all(r#"{"DFLogHttpTraceError":"0","FLogNetwork":3}"#).unwrap();
+        assert_eq!(m["DFLogHttpTraceError"], json!(0));
+        assert_eq!(m["FLogNetwork"], json!(3));
+    }
+
+    #[test]
+    fn import_keeps_good_keys_and_reports_the_rest() {
+        let (flags, aliased, inferred, skipped) = import_all(
+            r#"{"DFIntA":"7","DFFlagB":"True","CSGLevelOfDetailSwitchingDistance":"0","FFlagC":"maybe"}"#,
+        )
+        .unwrap();
+        assert_eq!(flags.len(), 4); // 2 valid + 2 variants for the orphan
+        assert_eq!(flags["DFFlagB"], json!(true));
+        assert_eq!(skipped.len(), 1); // only FFlagC has a bad value
+        assert!(inferred.len() == 1 && inferred[0].starts_with("CSGLevelOfDetailSwitchingDistance"));
+        assert!(aliased.is_empty());
+    }
+
+    #[test]
+    fn bare_name_with_a_prefixed_twin_is_dropped_not_duplicated() {
+        let (flags, aliased, inferred, _) = import_all(
+            r#"{"DFIntCSGLevelOfDetailSwitchingDistance":"100","CSGLevelOfDetailSwitchingDistance":"0",
+                "TaskSchedulerUnreliableSleepManufacturers":"True"}"#,
+        )
+        .unwrap();
+        assert_eq!(flags["DFIntCSGLevelOfDetailSwitchingDistance"], json!(100));
+        assert_eq!(aliased.len(), 1);
+        assert_eq!(inferred.len(), 1);
+        // orphan written as both variants, typed from the value
+        assert_eq!(flags["FFlagTaskSchedulerUnreliableSleepManufacturers"], json!(true));
+        assert_eq!(flags["DFFlagTaskSchedulerUnreliableSleepManufacturers"], json!(true));
     }
 
     #[test]

@@ -37,6 +37,14 @@ Java on the framework (no AndroidX, no gradle).
 * **Presets** — `fps`, `performance`, `clean`, defined in Rust.
 * **Custom JSON** — `JSON` dialog with `Replace`, `Cancel`, and `.json file` (system file
   picker, JSON only, validated before it is accepted).
+* **Lenient import** — real flag packs are messy, so an import keeps every valid key and
+  reports the rest instead of refusing the file:
+  * `FLog`/`DFLog` are supported (integer log levels).
+  * a bare name that also appears prefixed in the same file is dropped — the client reads
+    `prefix + name`, so only the prefixed entry can ever apply.
+  * a bare name with no prefixed twin is written as both the `F` and the `DF` variant; the
+    variant the client doesn't register is a no-op.
+  * anything else is listed with its reason.
 * **Autosave** — edits you have not applied yet are kept in app storage, so leaving the app
   loses nothing. The draft is versioned, only exists while it differs from the device file,
   and is deleted as soon as the device file is read or an apply succeeds, so a stale draft can

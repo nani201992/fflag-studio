@@ -11,6 +11,7 @@ final class Core {
     private Core() {}
 
     private static native String normalize(String json);
+    private static native String importFlags(String json);
     private static native String normalizeOne(String key, String value);
     private static native String preset(String name);
 
@@ -26,6 +27,20 @@ final class Core {
 
     static String presetJson(String name) {
         return unwrap(preset(name));
+    }
+
+    /**
+     * Lenient import: keeps every valid flag, drops bare names that have a prefixed twin,
+     * expands orphan bare names to both F and DF variants, and reports all of it.
+     *
+     * @return {"flags":{…},"aliased":[…],"inferred":[…],"skipped":[…]}
+     */
+    static JSONObject importJson(String json) {
+        try {
+            return new JSONObject(unwrap(importFlags(json)));
+        } catch (org.json.JSONException e) {
+            throw new IllegalStateException("engine reply unreadable");
+        }
     }
 
     private static String unwrap(String reply) {

@@ -746,7 +746,8 @@ public class MainActivity extends Activity {
     /** The picked object becomes the whole set, after the Rust engine validates it. */
     private void replaceFromBox() {
         try {
-            JSONObject obj = new JSONObject(Core.canonical(jsonBox.getText().toString()));
+            JSONObject imported = Core.importJson(jsonBox.getText().toString());
+            JSONObject obj = imported.getJSONObject("flags");
             flags.clear();
             int n = 0;
             for (Iterator<String> it = obj.keys(); it.hasNext(); ) {
@@ -758,6 +759,7 @@ public class MainActivity extends Activity {
             saveDraft();
             setStatus("replaced with " + n + " flags — press Apply to write");
             jsonDialog.dismiss();
+            reportImport(imported);
         } catch (Throwable t) {
             // keep the dialog open so the JSON can be fixed
             Toast.makeText(this, brief(t), Toast.LENGTH_LONG).show();
@@ -791,14 +793,67 @@ public class MainActivity extends Activity {
                 throw new IllegalArgumentException("only .json files (" + name + ")");
             }
             String text = readText(uri, MAX_JSON_BYTES);
-            JSONObject obj = new JSONObject(Core.canonical(text));
+            JSONObject imported = Core.importJson(text);
+            JSONObject obj = imported.getJSONObject("flags");
             if (jsonBox == null || jsonDialog == null || !jsonDialog.isShowing()) return;
             jsonBox.setText(obj.toString(2));
             jsonBox.setSelection(0);
             setStatus(name + ": " + obj.length() + " valid flags — press Replace");
+            reportImport(imported);
         } catch (Throwable t) {
             Toast.makeText(this, brief(t), Toast.LENGTH_LONG).show();
         }
+    }
+
+    /** Explains what an import dropped, inferred or skipped, with the full list on demand. */
+    private void reportImport(JSONObject imported) {
+        org.json.JSONArray aliased = imported.optJSONArray("aliased");
+        org.json.JSONArray inferred = imported.optJSONArray("inferred");
+        org.json.JSONArray skipped = imported.optJSONArray("skipped");
+        int a = aliased == null ? 0 : aliased.length();
+        int i = inferred == null ? 0 : inferred.length();
+        int k = skipped == null ? 0 : skipped.length();
+        if (a + i + k == 0) return;
+
+        StringBuilder body = new StringBuilder();
+        if (a > 0) {
+            body.append("Dropped ").append(a).append(" bare name(s) that already exist with a real")
+                    .append(" prefix in this file (the prefixed one is the one the client reads):\n")
+                    .append(join(aliased, 12)).append("\n\n");
+        }
+        if (i > 0) {
+            body.append("Wrote ").append(i).append(" orphan bare name(s) as both F and DF variants")
+                    .append(" (the variant the client doesn't know is ignored):\n")
+                    .append(join(inferred, 12)).append("\n\n");
+        }
+        if (k > 0) {
+            body.append("Skipped ").append(k).append(" key(s) that cannot be applied:\n")
+                    .append(join(skipped, 12)).append("\n");
+        }
+        final String detail = body.toString().trim();
+        try {
+            new AlertDialog.Builder(this)
+                    .setTitle("Import report")
+                    .setMessage(detail)
+                    .setPositiveButton("OK", null)
+                    .setNeutralButton("Copy", (d, w) -> {
+                        ClipboardManager cb =
+                                (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+                        if (cb != null) cb.setPrimaryClip(ClipData.newPlainText("fflag import", detail));
+                        Toast.makeText(this, "copied", Toast.LENGTH_SHORT).show();
+                    })
+                    .show();
+        } catch (Throwable ignored) {
+        }
+    }
+
+    private static String join(org.json.JSONArray array, int limit) {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < array.length() && i < limit; i++) {
+            sb.append("  ").append(array.optString(i)).append("\n");
+        }
+        if (array.length() > limit) sb.append("  …and ").append(array.length() - limit).append(" more\n");
+        return sb.toString();
     }
 
     private String displayName(Uri uri) {
