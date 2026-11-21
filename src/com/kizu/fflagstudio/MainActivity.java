@@ -175,16 +175,10 @@ public class MainActivity extends Activity implements FlagAdapter.Host {
 
         LinearLayout buttons2 = new LinearLayout(this);
         buttons2.setOrientation(LinearLayout.HORIZONTAL);
-        buttons2.addView(button("Undo", v -> revert()));
-        buttons2.addView(button("Prompt", v -> promptDialog()));
+        buttons2.addView(button("Clear all", v -> clearAll()));
         buttons2.addView(button("Apply", v -> apply()));
+        buttons2.addView(button("Update", v -> checkUpdate(true)));
         root.addView(buttons2);
-
-        LinearLayout buttons3 = new LinearLayout(this);
-        buttons3.setOrientation(LinearLayout.HORIZONTAL);
-        buttons3.addView(button("Optimize", v -> optimizeAndReport()));
-        buttons3.addView(button("Update", v -> checkUpdate(true)));
-        root.addView(buttons3);
 
         search = new EditText(this);
         search.setHint("filter");
@@ -586,43 +580,28 @@ public class MainActivity extends Activity implements FlagAdapter.Host {
         });
     }
 
-    private void revert() {
-        if (!ShizukuShell.granted()) {
-            setStatus("grant Shizuku first");
+    /**
+     * Empties the working set. Nothing is written until Apply, and the pre-first-apply file
+     * stays in app storage as ClientAppSettings.json.bak.
+     */
+    private void clearAll() {
+        commitFocused();
+        if (flags.isEmpty()) {
+            setStatus("already empty");
             return;
         }
-        final String target = selectedTarget();
-        setStatus("reverting…");
-        io.execute(() -> {
-            try {
-                File bak = backupFile();
-                String msg;
-                if (bak.isFile()) {
-                    String text = new String(java.nio.file.Files.readAllBytes(bak.toPath()),
-                            StandardCharsets.UTF_8);
-                    writeFlagFile(text);
-                    //noinspection ResultOfMethodCallIgnored
-                    bak.delete();
-                    msg = "restored the previous file";
-                } else {
-                    ShizukuShell.run("rm -f " + FLAG_FILE);
-                    msg = "removed " + FLAG_FILE;
-                }
-                try {
-                    String restarted = restartClients(target);
-                    if (!restarted.isEmpty()) msg += " · " + restarted;
-                } catch (Throwable t) {
-                    msg += " · restart failed: " + brief(t);
-                }
-                final String done = msg;
-                ui.post(() -> {
-                    setStatus(done);
-                    load();
-                });
-            } catch (Throwable t) {
-                ui.post(() -> showFailure("Undo failed", t));
-            }
-        });
+        new AlertDialog.Builder(this)
+                .setTitle("Clear all flags?")
+                .setMessage("The list becomes empty and is saved as a draft. Press Apply afterwards"
+                        + " to write an empty set to " + FLAG_FILE + ".")
+                .setPositiveButton("Clear", (d, w) -> {
+                    flags.clear();
+                    render();
+                    saveDraft();
+                    setStatus("cleared — press Apply to write an empty set");
+                })
+                .setNegativeButton("Cancel", null)
+                .show();
     }
 
     private File backupFile() {
@@ -873,105 +852,6 @@ public class MainActivity extends Activity implements FlagAdapter.Host {
 
     // ---------- device tuning ----------
 
-    /**
-     * Nothing is rewritten unless the client actually crashed: the log buffer is the only
-     * evidence this app has about the device, and flag values are typed settings, not a
-     * score (a high value is not automatically bad).
-     */
-    private void optimizeAndReport() {
-        commitFocused();
-        setStatus("checking the client crash log…");
-        final String pkg = selectedTarget();
-        io.execute(() -> {
-            CrashScan scan;
-            try {
-                scan = CrashScan.run(pkg);
-            } catch (Throwable t) {
-                scan = CrashScan.of("", "");
-            }
-            final CrashScan found = scan;
-            ui.post(() -> {
-                if (CrashScan.NONE.equals(found.kind)) {
-                    setStatus("no crash found — nothing changed");
-                    showReport("Optimize", "No crash for " + shortName(pkg)
-                            + " in the log since boot, so no value was changed.\n\n"
-                            + "Flags are typed settings read by the client (" + FLAG_FILE
-                            + "); a large value is legal and not automatically bad, so this"
-                            + " app only lowers things after a real crash.");
-                } else {
-                    List<String> fix = applyMitigation(found.kind);
-                    render();
-                    saveDraft();
-                    showCrashReport(found, fix);
-                }
-            });
-        });
-    }
-
-    /** The flag levers that matter for each crash family; returns what was set. */
-    private List<String> applyMitigation(String kind) {
-        String[][] fix;
-        if ("memory".equals(kind)) {
-            fix = new String[][]{
-                    {"DFIntTextureQualityOverride", "1"},
-                    {"DFIntMaxFrameBufferSize", "4"},
-                    {"FIntDebugForceMSAASamples", "1"},
-                    {"DFIntTaskSchedulerTargetFps", "30"},
-                    {"DFFlagEnableMeshPreloading", "false"},
-                    {"DFFlagEnableMeshPreloading2", "false"},
-                    {"DFFlagAudioEnableVolumetricPanningForMeshes", "false"},
-            };
-        } else if ("graphics".equals(kind)) {
-            fix = new String[][]{
-                    {"FIntDebugForceMSAASamples", "1"},
-                    {"DFIntDebugFRMQualityLevelOverride", "5"},
-                    {"DFIntMaxFrameBufferSize", "6"},
-            };
-        } else {
-            fix = new String[][]{
-                    {"DFIntTaskSchedulerTargetFps", "30"},
-                    {"DFIntTextureQualityOverride", "2"},
-                    {"FIntDebugForceMSAASamples", "1"},
-            };
-        }
-        List<String> applied = new ArrayList<>();
-        for (String[] kv : fix) {
-            flags.put(kv[0], kv[1]);
-            applied.add(kv[0] + " = " + kv[1]);
-        }
-        return applied;
-    }
-
-    private void showCrashReport(CrashScan scan, List<String> fix) {
-        StringBuilder body = new StringBuilder("Device: ").append(profile.label).append("\n")
-                .append("Crash: ").append(scan.kind).append("\n\n")
-                .append(scan.evidence.trim()).append("\n\nFixes applied:\n");
-        for (String line : fix) body.append("  ").append(line).append("\n");
-        body.append("\nPress Apply to write them. ");
-        body.append("The log tells the family (memory / graphics / native), not the exact flag — ");
-        body.append("if it keeps crashing, press Undo and drop your most recent additions.");
-        final String detail = body.toString().trim();
-        setStatus("crash found (" + scan.kind + ") — " + fix.size() + " fix(es) staged");
-        showReport("Crash report", detail);
-    }
-
-    private void showReport(String title, final String detail) {
-        try {
-            new AlertDialog.Builder(this)
-                    .setTitle(title)
-                    .setMessage(detail)
-                    .setPositiveButton("OK", null)
-                    .setNeutralButton("Copy", (d, w) -> {
-                        ClipboardManager cb =
-                                (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
-                        if (cb != null) cb.setPrimaryClip(ClipData.newPlainText("fflag report", detail));
-                        Toast.makeText(this, "copied", Toast.LENGTH_SHORT).show();
-                    })
-                    .show();
-        } catch (Throwable ignored) {
-        }
-    }
-
     // ---------- self-update ----------
 
     private void footerRefresh() {
@@ -1053,97 +933,6 @@ public class MainActivity extends Activity implements FlagAdapter.Host {
     }
 
     /** Builds a ready-to-paste prompt for an AI, using this device's client + current set. */
-    private void promptDialog() {
-        commitFocused();
-        final String current;
-        try {
-            current = toJsonObject(flags).toString(2);
-        } catch (JSONException e) {
-            return;
-        }
-        setStatus("building prompt…");
-        io.execute(() -> {
-            String prompt = buildPrompt(current, clientVersions());
-            ui.post(() -> showPrompt(prompt));
-        });
-    }
-
-    private String clientVersions() {
-        StringBuilder sb = new StringBuilder();
-        for (String pkg : PKGS) {
-            try {
-                String out = ShizukuShell.run(
-                        "dumpsys package " + pkg + " | grep -m1 versionName").trim();
-                if (out.isEmpty()) continue;
-                if (sb.length() > 0) sb.append(", ");
-                sb.append(shortName(pkg)).append(" ")
-                        .append(out.replace("versionName=", "").trim());
-            } catch (Throwable ignored) {
-            }
-        }
-        return sb.length() == 0 ? "Roblox Android (version unknown)" : sb.toString();
-    }
-
-    private String buildPrompt(String current, String clients) {
-        return "You are writing Roblox Android FastFlags for ClientAppSettings.json.\n"
-                + "Answer with ONE JSON object only: no prose, no markdown fences, no comments,"
-                + " no trailing commas.\n\n"
-                + "Format rules:\n"
-                + "- Key prefixes decide the type: FFlag / DFFlag = boolean,"
-                + " FInt / DFInt = integer, FString / DFString = string.\n"
-                + "- The value must match the prefix: true/false, a bare integer, or a quoted string.\n"
-                + "- Use only real Roblox flag names you are confident exist. Never invent a name.\n"
-                + "- Prefer client-side rendering/performance flags. Skip anything that breaks"
-                + " gameplay, physics sanity or anti-cheat.\n"
-                + "- Return at most 15 flags.\n\n"
-                + "Client: " + clients + "\n"
-                + "Goal: <replace this with what you want, e.g. 120 FPS, lowest graphics,"
-                + " no visual clutter>\n\n"
-                + "Current flags on the device (keep or change as needed):\n"
-                + current + "\n\n"
-                + "Return only the JSON object; I will paste it into my flag editor.\n";
-    }
-
-    private void showPrompt(String prompt) {
-        EditText box = new EditText(this);
-        box.setTypeface(Typeface.MONOSPACE);
-        box.setTextSize(12);
-        box.setTextColor(TEXT);
-        box.setGravity(Gravity.TOP | Gravity.START);
-        box.setMinLines(10);
-        box.setTextIsSelectable(true);
-        box.setInputType(InputType.TYPE_CLASS_TEXT
-                | InputType.TYPE_TEXT_FLAG_MULTI_LINE
-                | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
-        box.setText(prompt);
-
-        new AlertDialog.Builder(this)
-                .setTitle("AI prompt")
-                .setView(box)
-                .setPositiveButton("Copy", (d, w) -> {
-                    ClipboardManager cb =
-                            (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
-                    if (cb != null) {
-                        cb.setPrimaryClip(ClipData.newPlainText("fflag prompt",
-                                box.getText().toString()));
-                    }
-                    setStatus("prompt copied — paste it into your AI");
-                })
-                .setNeutralButton("Share", (d, w) -> {
-                    Intent send = new Intent(Intent.ACTION_SEND);
-                    send.setType("text/plain");
-                    send.putExtra(Intent.EXTRA_TEXT, box.getText().toString());
-                    try {
-                        startActivity(Intent.createChooser(send, "share prompt"));
-                    } catch (Throwable t) {
-                        Toast.makeText(this, brief(t), Toast.LENGTH_LONG).show();
-                    }
-                })
-                .setNegativeButton("Close", null)
-                .show();
-        setStatus("prompt ready — Copy, ask your AI, paste the JSON back in");
-    }
-
     private void presetDialog() {
         String[] names = {"fps", "performance", "clean"};
         new AlertDialog.Builder(this)

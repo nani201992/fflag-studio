@@ -58,11 +58,6 @@ Java on the framework (no AndroidX, no gradle).
   * values are typed, not scored: `"DFIntTaskSchedulerTargetFps": 99999` is legal and simply
     means "don't cap me"; a big number is not automatically bad, and a low one is not automatically
     safe. **This app never rewrites a value you set.**
-* **Optimize** acts only on evidence. It reads the client crash buffer
-  (`logcat -b crash`) and, if the last crash is for the selected client, applies the matching
-  levers — memory pressure (texture quality, frame buffer, MSAA, mesh preloading), graphics/GPU
-  fault (MSAA, quality level, frame buffer) or a plain native crash (fps, texture quality, MSAA).
-  The report shows the log lines it matched. With no crash it changes nothing and says so.
 * **Fast with big packs** — the list is a recycled `ListView`, so a 1300-flag set builds ~10
   row views instead of 1300 (measured: 1% janky frames, 8 ms median frame while scrolling).
   Row edits commit on focus loss, and `Apply` also commits the focused row.
@@ -70,7 +65,9 @@ Java on the framework (no AndroidX, no gradle).
   loses nothing. The draft is versioned, only exists while it differs from the device file,
   and is deleted as soon as the device file is read or an apply succeeds, so a stale draft can
   never shadow what is actually on the device.
-* **Undo** — writes back the file as it was before the first apply (kept in app storage), or
+* **Clear all** — empties the working set (draft included) without touching the device; press
+  `Apply` to write an empty flag file. The pre-first-apply file stays in app storage as
+  `ClientAppSettings.json.bak`.
   deletes it if there was none.
 * **AI prompt** — builds a ready-to-paste prompt (format rules, your client version, your
   current flags, a goal slot) and provides Copy / Share. Paste the answer back in `JSON`.
@@ -107,8 +104,7 @@ First run: press **Apply** once and accept the Shizuku prompt. The status line t
 | `Add` | Add one flag; the key/value pair is validated by Rust first |
 | `Preset` | Merge a built-in set (`fps`, `performance`, `clean`) |
 | `JSON` | Edit the set as JSON; `Replace` applies the text, `.json file` loads a file |
-| `Undo` | Restore the pre-first-apply file, or delete it |
-| `Prompt` | Generate an AI prompt for new flags |
+| `Clear all` | Empty the working set; `Apply` writes an empty file |
 | `Apply` | Normalise, write, verify, restart the selected client |
 | `filter` | Filter rows by key |
 | `✕` | Remove a row (autosaved, not written until Apply) |
@@ -188,8 +184,10 @@ Each fix bumps it by 0.1 (`0.1`, `0.2`, …), and the APK is named `FFlagStudio-
 * **Flags applied but nothing changes** — the file is only read at client startup; restart
   the client (or press Apply and let the app do it). Flags removed from a client build are
   written and silently ignored.
-* **Undo surprises** — `Undo` restores the file from before the first apply *in this app
-  install*; it is a single slot, not a history.
+* **Cleared by accident** — `Clear all` only empties the editor; nothing reaches the device
+  until `Apply`, and an empty draft is ignored on the next launch. If you already applied an
+  empty set, the file from before the first apply is kept in app storage as
+  `ClientAppSettings.json.bak` (no longer reachable from the UI — pull it with Shizuku).
 
 ## Limits
 
