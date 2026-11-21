@@ -94,8 +94,10 @@ final class Updater {
             ShizukuShell.run("rm -f " + TMP);
             throw new IllegalStateException("download truncated: " + size + " of " + apk.length);
         }
-        String out = ShizukuShell.run("pm install -r " + TMP + " 2>&1");
-        ShizukuShell.run("rm -f " + TMP);
+        // one shell command: replacing our own package kills this process before we could
+        // clean up, but the remote shell (uid 2000) keeps running
+        String out = ShizukuShell.run("out=$(pm install -r " + TMP
+                + " 2>&1); rm -f " + TMP + "; printf '%s' \"$out\"");
         if (!out.contains("Success")) throw new IllegalStateException(out.trim());
         return out.trim();
     }
