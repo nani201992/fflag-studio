@@ -112,6 +112,11 @@ public class MainActivity extends Activity implements FlagAdapter.Host {
         refreshChannel();
         restoreOrLoad();
         checkUpdate(false);
+        if (!Core.available()) {
+            String abi = android.os.Build.SUPPORTED_ABIS.length > 0
+                    ? android.os.Build.SUPPORTED_ABIS[0] : "?";
+            setStatus("no flag engine for this CPU (" + abi + ") — this APK was built without that ABI");
+        }
     }
 
     @Override
@@ -597,6 +602,12 @@ public class MainActivity extends Activity implements FlagAdapter.Host {
 
     private void apply() {
         commitFocused();
+        if (!Core.available()) {
+            String abi = android.os.Build.SUPPORTED_ABIS.length > 0
+                    ? android.os.Build.SUPPORTED_ABIS[0] : "?";
+            setStatus("no flag engine for this CPU (" + abi + ") — nothing written");
+            return;
+        }
         if (!ShizukuShell.granted()) {
             if (ShizukuShell.alive()) {
                 ShizukuShell.request(REQ_SHIZUKU);

@@ -39,15 +39,14 @@ then is the client restarted.
 
 ## Requirements
 
-* Android 8.0+ (API 26), **arm64-v8a only**.
+* Android 8.0+ (API 26), any CPU the APK carries an engine for (see below).
 * [Shizuku](https://shizuku.rikka.app/) installed and running, with FFlag Studio granted.
 * Roblox (`com.roblox.client`) and/or Roblox VNG (`com.roblox.client.vnggames`).
 
-The APK contains one native library, the Rust engine (`libfflagcore.so`) built for
-`aarch64-linux-android`. So it is **not a universal APK**: a 32-bit-only phone (armeabi-v7a) or an
-x86/x86_64 emulator cannot install it — the package manager rejects it with
-`INSTALL_FAILED_NO_MATCHING_ABIS`, and that is not a corrupted download. Adding those ABIs means
-cross-compiling the engine against the Android NDK for each target, which this build does not do.
+The APK is **universal**: the Rust engine (`libfflagcore.so`) ships for `arm64-v8a`,
+`armeabi-v7a`, `x86` and `x86_64`, so 64-bit phones, 32-bit phones and emulators all install it. If
+a CPU ever lacks a build, the app still opens and reports it in the status line instead of crashing
+— nothing is written in that state.
 
 ## Install
 
@@ -68,7 +67,7 @@ running in the background.
 
 Download `FFlagStudio-<version>.apk` from the [releases page](https://github.com/nani201992/fflag-studio/releases/latest)
 and side-load it (allow "install unknown apps" for your browser/file manager). Needs Android 8.0+
-on a 64-bit ARM phone — see [Requirements](#requirements).
+— see [Requirements](#requirements).
 
 ### 3. Give it Shizuku access
 
@@ -175,8 +174,8 @@ list.
   ("Roblox keeps stopping" → **App info**), not something this app opens. Since 0.12 the restart
   waits for `am force-stop` to finish, launches through the launcher activity, and reports when the
   client exits right after starting.
-* **Install says `INSTALL_FAILED_NO_MATCHING_ABIS`** — the phone is 32-bit-only or an x86 emulator.
-  The engine is arm64-only; see [Requirements](#requirements).
+* **Install says `INSTALL_FAILED_NO_MATCHING_ABIS`** — only `arm64-v8a`, `armeabi-v7a`, `x86` and
+  `x86_64` engines are built in; an exotic CPU (riscv64, mips) has none yet.
 * **Update banner never appears** — you are on the latest release; press **Update** to check
   explicitly. Wireless debugging being off does not affect updates.
 * **Cleared by accident** — `Clear all` only empties the editor and nothing reaches the device until
@@ -206,15 +205,20 @@ unzip -oq build-tools_r34-linux.zip android-14/lib/d8.jar android-14/lib/apksign
 unzip -oq platform-34-ext12_r01.zip android-34-ext12/android.jar
 #    Shizuku: api, provider, aidl (13.1.5), then extract classes.jar from each
 
-# 2. Rust engine
+# 2. Rust engine: tests, then one cdylib per ABI
+pkg install rust-src ndk-multilib          # cross std source + bionic sysroots
 cd rust && CARGO_TARGET_DIR=~/.cache/fflagcore cargo test
-CARGO_TARGET_DIR=~/.cache/fflagcore cargo build --release
+sh build-android.sh                        # aarch64, armv7, x86_64, i686
 
-# 3. APK
+# 3. APK (packs every libfflagcore.so it finds)
 ./build.sh
 ```
 
-`build.sh` is the whole pipeline: `aapt2 compile` → `aapt2 link --java` → `javac` → `d8` → zip
+`build-android.sh` compiles `std` from `rust-src` for the three ABIs Termux does not ship prebuilt
+and links them against `ndk-multilib`'s bionic sysroots; arm64 uses the prebuilt `std`.
+`build.sh` packs whichever ABIs were built and refuses to produce an APK without arm64.
+
+`build.sh` itself is the whole pipeline: `aapt2 compile` → `aapt2 link --java` → `javac` → `d8` → zip
 `classes.dex` + `lib/arm64-v8a/libfflagcore.so` → `apksigner`.
 
 Signing uses `~/apkbuild/debug.keystore`; replace it (and the `--ks-*` flags) for anything you
@@ -235,6 +239,7 @@ src/com/kizu/fflagstudio/
   ShizukuShell.java        Shizuku binder shell (run, run with stdin)
   Updater.java             GitHub release check + install through Shizuku
 rust/                      libfflagcore: parse/validate/canonicalise (+ 6 tests)
+  build-android.sh         cross-builds the engine for arm64, armv7, x86_64 and i686
 ```
 
 ## Versioning

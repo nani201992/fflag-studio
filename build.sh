@@ -5,11 +5,13 @@ cd "$(dirname "$0")"
 
 T="$HOME/apkbuild/tools"
 SZ="$HOME/apkbuild/shizuku"
-CORE="$HOME/.cache/fflagcore/release/libfflagcore.so"
+CACHE="$HOME/.cache/fflagcore"
+# Rust cdylib per ABI. arm64 is required; the other three make the APK universal.
+ABIS="arm64-v8a:aarch64-linux-android armeabi-v7a:armv7-linux-androideabi x86_64:x86_64-linux-android x86:i686-linux-android"
 CP="$T/android.jar:$SZ/api/classes.jar:$SZ/provider/classes.jar:$SZ/aidl/classes.jar"
 
 rm -rf out
-mkdir -p out/classes out/dex out/lib/arm64-v8a out/gen
+mkdir -p out/classes out/dex out/gen
 
 # resources first: aapt2 emits R.java, which javac needs
 aapt2 compile --dir res -o out/res.zip
@@ -24,8 +26,18 @@ java -cp "$T/d8.jar" com.android.tools.r8.D8 --min-api 26 --lib "$T/android.jar"
 	"$SZ/api/classes.jar" "$SZ/provider/classes.jar" "$SZ/aidl/classes.jar"
 (cd out/dex && zip -q ../base.apk classes.dex)
 
-cp "$CORE" out/lib/arm64-v8a/libfflagcore.so
-(cd out && zip -q base.apk lib/arm64-v8a/libfflagcore.so)
+built=0
+for pair in $ABIS; do
+	abi="${pair%%:*}"; triple="${pair##*:}"
+	so="$CACHE/$triple/release/libfflagcore.so"
+	[ -f "$so" ] || so="$CACHE/release/libfflagcore.so"   # legacy host build
+	[ -f "$so" ] || continue
+	[ "$abi" = "arm64-v8a" ] && built=1
+	mkdir -p "out/lib/$abi"
+	cp "$so" "out/lib/$abi/libfflagcore.so"
+	(cd out && zip -q base.apk "lib/$abi/libfflagcore.so")
+done
+[ "$built" = 1 ] || { echo "no arm64 libfflagcore.so — build it first (see README)"; exit 1; }
 
 java -jar "$T/apksigner.jar" sign \
 	--ks "$HOME/apkbuild/debug.keystore" --ks-pass pass:android --key-pass pass:android \

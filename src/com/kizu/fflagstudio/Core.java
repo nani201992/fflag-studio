@@ -4,8 +4,20 @@ import org.json.JSONObject;
 
 /** JNI bridge to the Rust flag engine (libfflagcore.so). */
 final class Core {
-    static {
-        System.loadLibrary("fflagcore");
+    /** False when this CPU has no libfflagcore.so in the APK; every call would throw. */
+    private static final boolean loaded = load();
+
+    private static boolean load() {
+        try {
+            System.loadLibrary("fflagcore");
+            return true;
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    static boolean available() {
+        return loaded;
     }
 
     private Core() {}
