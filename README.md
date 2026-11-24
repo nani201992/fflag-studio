@@ -26,9 +26,10 @@ write `/data/local/tmp`. Every apply is written, read back, compared as canonica
 then is the client restarted.
 
 <p align="center">
-  <a href="docs/tutorial.mp4"><img src="docs/tutorial-poster.jpg" width="240" alt="Video: connecting Shizuku"></a>
+  <img src="docs/tutorial.gif" width="300" alt="Shizuku setup on the phone: wireless debugging pairing, the pair code, Start, then enabling FFlag Studio">
   <br>
-  <a href="docs/tutorial.mp4"><b>▶ Watch the Shizuku setup video (55 s)</b></a>
+  <sub><b>Shizuku setup, recorded on the phone</b> — pairing → Start → enable FFlag Studio<br>
+  <a href="docs/tutorial.mp4">full quality video, 55 s</a></sub>
 </p>
 
 <p align="center">
