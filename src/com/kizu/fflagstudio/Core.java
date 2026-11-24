@@ -13,7 +13,6 @@ final class Core {
     private static native String normalize(String json);
     private static native String importFlags(String json);
     private static native String normalizeOne(String key, String value);
-    private static native String preset(String name);
 
     /** @return canonical JSON object, or throws with the engine's message. */
     static String canonical(String json) {
@@ -23,10 +22,6 @@ final class Core {
     /** @return a one-key canonical JSON object, or throws. */
     static String one(String key, String value) {
         return unwrap(normalizeOne(key, value));
-    }
-
-    static String presetJson(String name) {
-        return unwrap(preset(name));
     }
 
     /**

@@ -246,49 +246,6 @@ pub extern "system" fn Java_com_kizu_fflagstudio_Core_normalizeOne(
     }
 }
 
-#[no_mangle]
-pub extern "system" fn Java_com_kizu_fflagstudio_Core_preset(
-    mut env: JNIEnv,
-    _class: JClass,
-    name: JString,
-) -> jstring {
-    let out = read(&mut env, &name).and_then(|name| {
-        let entries: &[(&str, Value)] = match name.as_str() {
-            "fps" => &[
-                ("DFIntTaskSchedulerTargetFps", json!(240)),
-                ("FFlagDebugDisplayFPS", json!(true)),
-            ],
-            "performance" => &[
-                ("DFIntTaskSchedulerTargetFps", json!(60)),
-                ("DFIntCSGLevelOfDetailSwitchingDistance", json!(0)),
-                ("DFIntCSGLevelOfDetailSwitchingDistanceL12", json!(0)),
-                ("DFIntCSGLevelOfDetailSwitchingDistanceL23", json!(0)),
-                ("DFIntCSGLevelOfDetailSwitchingDistanceL34", json!(0)),
-                ("DFFlagTextureQualityOverrideEnabled", json!(true)),
-                ("DFIntTextureQualityOverride", json!(0)),
-                ("FIntDebugForceMSAASamples", json!(1)),
-                ("FIntRenderShadowIntensity", json!(0)),
-                ("FFlagDebugSkyGray", json!(true)),
-            ],
-            "clean" => &[
-                ("FFlagDebugSkyGray", json!(true)),
-                ("FIntDebugForceMSAASamples", json!(1)),
-                ("FIntRenderShadowIntensity", json!(0)),
-            ],
-            other => return Err(format!("unknown preset {other:?}")),
-        };
-        let mut map = Map::new();
-        for (k, v) in entries {
-            map.insert((*k).to_string(), v.clone());
-        }
-        Ok(Value::Object(map).to_string())
-    });
-    match out {
-        Ok(json) => reply(&mut env, true, json),
-        Err(e) => reply(&mut env, false, e),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -57,6 +57,7 @@ public class MainActivity extends Activity implements FlagAdapter.Host {
     /** bump when the draft layout changes; older drafts are ignored and deleted */
     private static final int DRAFT_VERSION = 2;
     private static final String PREFS = "fflagstudio";
+    private static final String PRESETS = "presets";
     /** the two clients; both read the same flag file, the pick decides what gets restarted */
     private static final String[] TARGET_KEYS = {
             "com.roblox.client", "com.roblox.client.vnggames"};
@@ -997,27 +998,143 @@ public class MainActivity extends Activity implements FlagAdapter.Host {
     }
 
     /** Builds a ready-to-paste prompt for an AI, using this device's client + current set. */
+    /** name -> {flag: value}. Empty until the user saves a set; nothing ships preloaded. */
+    private JSONObject presets() {
+        try {
+            return new JSONObject(getSharedPreferences(PREFS, MODE_PRIVATE)
+                    .getString(PRESETS, "{}"));
+        } catch (JSONException e) {
+            return new JSONObject();
+        }
+    }
+
+    private void savePresets(JSONObject all) {
+        getSharedPreferences(PREFS, MODE_PRIVATE).edit()
+                .putString(PRESETS, all.toString()).apply();
+    }
+
     private void presetDialog() {
-        String[] names = {"fps", "performance", "clean"};
+        commitFocused();
+        JSONObject store = presets();
+
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(dp(18), dp(8), dp(18), dp(8));
+
+        ScrollView scroll = new ScrollView(this);
+        scroll.addView(box);
+        AlertDialog dlg = new AlertDialog.Builder(this)
+                .setTitle("Presets")
+                .setView(scroll)
+                .setNegativeButton("Close", null)
+                .create();
+
+        TextView save = Style.pill(this, "Save current set (" + flags.size() + " flags)", true);
+        save.setOnClickListener(v -> {
+            dlg.dismiss();
+            savePresetDialog();
+        });
+        box.addView(save, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(42)));
+
+        if (store.length() == 0) {
+            TextView hint = Style.label(this,
+                    "No presets yet.\nSave your current flags once, then apply that set any time.",
+                    12, Style.DIM, false);
+            hint.setPadding(0, dp(18), 0, dp(10));
+            box.addView(hint);
+            dlg.show();
+            return;
+        }
+        for (Iterator<String> it = store.keys(); it.hasNext(); ) {
+            String name = it.next();
+            JSONObject set = store.optJSONObject(name);
+            if (set != null) box.addView(presetRow(dlg, name, set));
+        }
+        dlg.show();
+    }
+
+    private View presetRow(AlertDialog dlg, String name, JSONObject set) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setBackground(Style.round(this, Style.SURFACE_HI, 12, Style.STROKE));
+        row.setPadding(dp(12), dp(10), dp(6), dp(10));
+        LinearLayout.LayoutParams rowLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        rowLp.topMargin = dp(8);
+        row.setLayoutParams(rowLp);
+
+        LinearLayout texts = new LinearLayout(this);
+        texts.setOrientation(LinearLayout.VERTICAL);
+        texts.addView(Style.label(this, name, 13, Style.TEXT, true));
+        TextView sub = Style.label(this, set.length() + " flags · tap to apply",
+                10.5f, Style.DIM, false);
+        sub.setPadding(0, dp(3), 0, 0);
+        texts.addView(sub);
+        row.addView(texts, new LinearLayout.LayoutParams(0,
+                ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+
+        TextView del = Style.label(this, "✕", 14, Style.DANGER, true);
+        del.setGravity(Gravity.CENTER);
+        del.setBackground(Style.ripple(this, Style.round(this, 0x00000000, 17), 17));
+        del.setOnClickListener(v -> {
+            JSONObject store = presets();
+            store.remove(name);
+            savePresets(store);
+            dlg.dismiss();
+            setStatus("deleted preset " + name);
+        });
+        row.addView(del, new LinearLayout.LayoutParams(dp(34), dp(34)));
+
+        row.setOnClickListener(v -> {
+            int added = 0;
+            for (Iterator<String> it = set.keys(); it.hasNext(); ) {
+                String k = it.next();
+                flags.put(k, display(set.opt(k)));
+                added++;
+            }
+            render();
+            saveDraft();
+            dlg.dismiss();
+            setStatus("applied " + name + ": " + added + " flags");
+        });
+        return row;
+    }
+
+    private void savePresetDialog() {
+        EditText input = new EditText(this);
+        input.setHint("Preset name");
+        input.setSingleLine(true);
+        input.setTextColor(Style.TEXT);
+        input.setHintTextColor(Style.DIM);
+        input.setIncludeFontPadding(false);
+        input.setBackground(Style.round(this, Style.SURFACE_HI, 10, Style.STROKE));
+        input.setPadding(dp(12), dp(10), dp(12), dp(10));
+        LinearLayout wrap = new LinearLayout(this);
+        wrap.setPadding(dp(20), dp(6), dp(20), 0);
+        wrap.addView(input, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         new AlertDialog.Builder(this)
-                .setTitle("Preset")
-                .setItems(names, (d, which) -> {
-                    try {
-                        commitFocused();
-                        JSONObject obj = new JSONObject(Core.presetJson(names[which]));
-                        int added = 0;
-                        for (Iterator<String> it = obj.keys(); it.hasNext(); ) {
-                            String k = it.next();
-                            flags.put(k, display(obj.get(k)));
-                            added++;
-                        }
-                        render();
-                        saveDraft();
-                        setStatus("preset " + names[which] + ": " + added + " flags");
-                    } catch (Throwable t) {
-                        Toast.makeText(this, t.getMessage(), Toast.LENGTH_LONG).show();
+                .setTitle("Save preset")
+                .setView(wrap)
+                .setPositiveButton("Save", (d, w) -> {
+                    String name = input.getText().toString().trim();
+                    if (name.isEmpty()) {
+                        setStatus("preset needs a name");
+                        return;
                     }
+                    JSONObject store = presets();
+                    try {
+                        store.put(name, toJsonObject(flags));
+                    } catch (JSONException e) {
+                        setStatus("could not save preset: " + brief(e));
+                        return;
+                    }
+                    savePresets(store);
+                    setStatus("preset saved: " + name + " (" + flags.size() + " flags)");
                 })
+                .setNegativeButton("Cancel", null)
                 .show();
     }
 

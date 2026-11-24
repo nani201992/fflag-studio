@@ -17,7 +17,7 @@ Java on the framework (no AndroidX, no gradle).
 └──────────────┬───────────────┘
                │ JNI
 ┌──────────────▼───────────────┐
-│ Rust engine (libfflagcore.so)│  parse · validate · canonicalise · presets
+│ Rust engine (libfflagcore.so)│  parse · validate · canonicalise      
 └──────────────┬───────────────┘
                │
 ┌──────────────▼───────────────┐
@@ -34,7 +34,8 @@ Java on the framework (no AndroidX, no gradle).
   client ever sees the file; `"38760"` is coerced to `38760`.
 * **Client picker** — `apply to: Roblox | VNG` decides which client is restarted after a
   write (both read the same file).
-* **Presets** — `fps`, `performance`, `clean`, defined in Rust.
+* **Presets** — your own saved sets. Nothing ships preloaded: `Preset` → **Save current set**,
+  give it a name, then tap the preset later to merge it back in. `✕` deletes one.
 * **Custom JSON** — `JSON` dialog with `Replace`, `Cancel`, and `.json file` (system file
   picker, JSON only, validated before it is accepted).
 * **Lenient import** — real flag packs are messy, so an import keeps every valid key and
@@ -107,7 +108,7 @@ First run: press **Apply** once and accept the Shizuku prompt. The status line t
 | Action | What it does |
 |---|---|
 | `Add` | Add one flag; the key/value pair is validated by Rust first |
-| `Preset` | Merge a built-in set (`fps`, `performance`, `clean`) |
+| `Preset` | Save the current set under a name; tap to merge it back, `✕` to delete |
 | `JSON` | Edit the set as JSON; `Replace` applies the text, `.json file` loads a file |
 | `Clear all` | Empty the working set; `Apply` writes an empty file |
 | `Apply` | Normalise, write, verify, restart the selected client |
@@ -169,7 +170,7 @@ src/com/kizu/fflagstudio/
   MainActivity.java        UI, autosave, apply/undo, JSON dialog, AI prompt
   ShizukuShell.java        Shizuku binder shell (run, run with stdin)
   Core.java                JNI bridge to the Rust engine
-rust/                      libfflagcore: parse/validate/canonicalise/presets (+ tests)
+rust/                      libfflagcore: parse/validate/canonicalise (+ tests)
 ```
 
 ## Versioning
