@@ -100,6 +100,9 @@ public class MainActivity extends Activity implements FlagAdapter.Host {
     protected void onCreate(Bundle b) {
         super.onCreate(b);
         profile = DeviceProfile.of(this);
+        // an update left its APK behind because installing it killed the process
+        File ext = getExternalFilesDir(null);
+        if (ext != null) new File(ext, "update.apk").delete();
         getWindow().setStatusBarColor(Style.BG);
         getWindow().setNavigationBarColor(Style.BG);
         setContentView(buildUi());
@@ -991,7 +994,7 @@ public class MainActivity extends Activity implements FlagAdapter.Host {
         setStatus("downloading " + tag + "…");
         io.execute(() -> {
             try {
-                String out = Updater.install(url);
+                String out = Updater.install(url, MainActivity.this);
                 ui.post(() -> setStatus("installed " + tag + " (" + out + ") — open the app again"));
             } catch (Throwable t) {
                 ui.post(() -> showFailure("Update failed", t));

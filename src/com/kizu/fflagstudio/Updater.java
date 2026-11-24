@@ -1,11 +1,15 @@
 package com.kizu.fflagstudio;
 
+import android.content.Context;
+import android.os.Build;
 import android.util.Base64;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.io.ByteArrayOutputStream;
+import java.io.File;
+import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
@@ -13,8 +17,9 @@ import java.nio.charset.StandardCharsets;
 
 /**
  * Self-update from the repo's latest release. The APK is downloaded with the normal network
- * stack, handed to the shell as base64 (stdin is text), then installed with `pm install -r`
- * as uid 2000 — no "unknown sources" prompt and no FileProvider.
+ * stack, then installed with `pm install -r` as uid 2000 — no "unknown sources" prompt and no
+ * FileProvider. The file is first offered to the shell from the app's external files dir; only
+ * if shell cannot read it is it pushed through Shizuku's stdin as base64.
  */
 final class Updater {
     static final String API =
@@ -43,14 +48,23 @@ final class Updater {
             int code = c.getResponseCode();
             if (code != 200) throw new IllegalStateException("github: HTTP " + code);
             JSONObject json = new JSONObject(text(c.getInputStream()));
+            String tag = json.getString("tag_name");
             JSONArray assets = json.optJSONArray("assets");
+            // Newest releases ship one small APK per ABI plus the universal one. Taking the match
+            // keeps an update download at ~230 KB instead of ~700 KB.
+            String abi = Build.SUPPORTED_ABIS.length > 0 ? Build.SUPPORTED_ABIS[0] : "";
+            String abiUrl = null;
+            String anyUrl = null;
             for (int i = 0; assets != null && i < assets.length(); i++) {
                 JSONObject asset = assets.getJSONObject(i);
-                if (asset.optString("name").endsWith(".apk")) {
-                    return new Release(json.getString("tag_name"),
-                            asset.getString("browser_download_url"));
-                }
+                String name = asset.optString("name");
+                if (!name.endsWith(".apk")) continue;
+                String url = asset.optString("browser_download_url");
+                if (!abi.isEmpty() && name.endsWith("-" + abi + ".apk")) abiUrl = url;
+                else if (!name.matches(".*-(arm64-v8a|armeabi-v7a|x86_64|x86)\\.apk$")) anyUrl = url;
             }
+            if (abiUrl != null) return new Release(tag, abiUrl);
+            if (anyUrl != null) return new Release(tag, anyUrl);
             throw new IllegalStateException("latest release has no .apk asset");
         } finally {
             c.disconnect();
@@ -83,10 +97,23 @@ final class Updater {
     }
 
     /** Downloads and installs; returns the installer output ("Success"). */
-    static String install(String apkUrl) throws Exception {
+    static String install(String apkUrl, Context ctx) throws Exception {
         byte[] apk = bytes(new URL(apkUrl).openStream());
         if (apk.length < 10_000) {
             throw new IllegalStateException("download too small: " + apk.length + " bytes");
+        }
+        // Fast path: hand the file over where shell can read it and let pm read it directly.
+        // Pushing ~1 MB of base64 through Shizuku's stdin is what made updates slow.
+        File dir = ctx.getExternalFilesDir(null);
+        if (dir != null) {
+            File f = new File(dir, "update.apk");
+            try (FileOutputStream out = new FileOutputStream(f)) {
+                out.write(apk);
+            }
+            String direct = ShizukuShell.run("out=$(pm install -r '" + f.getAbsolutePath()
+                    + "' 2>&1); printf '%s' \"$out\"");
+            if (direct.contains("Success")) return "Success (direct)";
+            ShizukuShell.run("rm -f '" + f.getAbsolutePath() + "'");
         }
         ShizukuShell.runWithInput("base64 -d > " + TMP, Base64.encodeToString(apk, Base64.NO_WRAP));
         String size = ShizukuShell.run("stat -c %s " + TMP).trim();

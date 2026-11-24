@@ -43,4 +43,18 @@ java -jar "$T/apksigner.jar" sign \
 	--ks "$HOME/apkbuild/debug.keystore" --ks-pass pass:android --key-pass pass:android \
 	--min-sdk-version 26 --out out/app.apk out/base.apk
 
-ls -lh out/app.apk
+# Per-ABI APKs: what the in-app updater downloads (the universal one above is for sideloading).
+VERSION=$(aapt2 dump badging out/app.apk | sed -n "s/.*versionName='\([^']*\)'.*/\1/p" | head -1)
+for pair in $ABIS; do
+	abi="${pair%%:*}"
+	cp out/base.apk out/variant.apk
+	for other in arm64-v8a armeabi-v7a x86_64 x86; do
+		[ "$other" = "$abi" ] && continue
+		zip -q -d out/variant.apk "lib/$other/*" 2>/dev/null || true
+	done
+	java -jar "$T/apksigner.jar" sign \
+		--ks "$HOME/apkbuild/debug.keystore" --ks-pass pass:android --key-pass pass:android \
+		--min-sdk-version 26 --out "out/FFlagStudio-$VERSION-$abi.apk" out/variant.apk
+	rm -f out/variant.apk
+done
+ls -lh out/app.apk out/FFlagStudio-*.apk
