@@ -78,6 +78,7 @@ public class MainActivity extends Activity implements FlagAdapter.Host {
     private TextView count;
     private TextView tabRoblox;
     private TextView tabVng;
+    private TextView updateBanner;
     private int target = 1;
     private AlertDialog jsonDialog;
     private EditText jsonBox;
@@ -175,6 +176,16 @@ public class MainActivity extends Activity implements FlagAdapter.Host {
         }
         root.addView(actions, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        updateBanner = Style.label(this, "", 12.5f, 0xFFFFFFFF, true);
+        updateBanner.setBackground(Style.ripple(this, Style.round(this, Style.ACCENT, 13), 13));
+        updateBanner.setPadding(dp(14), dp(12), dp(14), dp(12));
+        updateBanner.setVisibility(View.GONE);
+        updateBanner.setOnClickListener(v -> installUpdate());
+        LinearLayout.LayoutParams bannerLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        bannerLp.topMargin = dp(6);
+        root.addView(updateBanner, bannerLp);
 
         search = new EditText(this);
         search.setHint("Search flags");
@@ -921,10 +932,14 @@ public class MainActivity extends Activity implements FlagAdapter.Host {
 
     private void footerRefresh() {
         if (footer == null) return;
-        StringBuilder text = new StringBuilder();
-        if (pendingUpdate != null) {
-            text.append("update ").append(pendingUpdate).append(" available — tap here to install\n");
+        if (updateBanner != null) {
+            boolean has = pendingUpdate != null;
+            updateBanner.setVisibility(has ? View.VISIBLE : View.GONE);
+            if (has) {
+                updateBanner.setText("Update " + pendingUpdate + " ready — tap to install");
+            }
         }
+        StringBuilder text = new StringBuilder();
         text.append("v").append(versionName());
         if (profile != null) text.append(" · ").append(profile.label);
         text.append(" · writes ").append(FLAG_FILE).append(" through Shizuku (uid 2000, no root)");
@@ -943,7 +958,7 @@ public class MainActivity extends Activity implements FlagAdapter.Host {
                     ui.post(() -> {
                         footerRefresh();
                         if (interactive) {
-                            setStatus("update " + release.tag + " available — tap the footer");
+                            setStatus("update " + release.tag + " available — tap the violet banner");
                         }
                     });
                 } else if (interactive) {
