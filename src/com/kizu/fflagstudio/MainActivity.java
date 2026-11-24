@@ -695,16 +695,19 @@ public class MainActivity extends Activity implements FlagAdapter.Host {
                     && !ShizukuShell.run("pidof " + pkg + " || true").trim().isEmpty(); i++) {
                 Thread.sleep(200);
             }
-            String out = ShizukuShell.run("am start -W -a android.intent.action.MAIN"
+            String out = ShizukuShell.run("am start -a android.intent.action.MAIN"
                     + " -c android.intent.category.LAUNCHER -p " + pkg);
-            if (out.contains("Error")) {
-                throw new IllegalStateException(shortName(pkg) + " did not start: " + lastLine(out));
-            }
             Thread.sleep(3000);
             boolean alive = !ShizukuShell.run("pidof " + pkg + " || true").trim().isEmpty();
             if (done.length() > 0) done.append(" + ");
-            done.append(alive ? "restarted " : "").append(shortName(pkg));
-            if (!alive) done.append(": started, then exited (crash?)");
+            if (alive) {
+                done.append("restarted ").append(shortName(pkg));
+            } else if (out.contains("Error")) {
+                done.append(shortName(pkg)).append(": launch failed (")
+                        .append(lastLine(out)).append(")");
+            } else {
+                done.append(shortName(pkg)).append(": started, then exited (crash?)");
+            }
         }
         return done.toString();
     }
