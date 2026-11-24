@@ -189,6 +189,11 @@ Each fix bumps it by 0.1 (`0.1`, `0.2`, …), and the APK is named `FFlagStudio-
 * **Flags applied but nothing changes** — the file is only read at client startup; restart
   the client (or press Apply and let the app do it). Flags removed from a client build are
   written and silently ignored.
+* **App info opens instead of Roblox** — that screen is the system's crash dialog for the client
+  ("Roblox keeps stopping" → **App info**), not something this app opens. 0.12 makes the restart
+  deterministic: it waits for `am force-stop` to finish, launches through the launcher activity
+  instead of the private splash, and then checks `pidof` — if the client died, the status says
+  "started, then exited (crash?)" and suggests `Clear all` + `Apply`.
 * **Cleared by accident** — `Clear all` only empties the editor; nothing reaches the device
   until `Apply`, and an empty draft is ignored on the next launch. If you already applied an
   empty set, the file from before the first apply is kept in app storage as

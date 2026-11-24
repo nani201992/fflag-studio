@@ -1,14 +1,11 @@
 package com.kizu.fflagstudio;
 
 import android.content.Context;
-import android.content.res.ColorStateList;
-import android.graphics.Color;
 import android.graphics.Typeface;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.BaseAdapter;
-import android.widget.Button;
 import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.TextView;
@@ -74,21 +71,23 @@ final class FlagAdapter extends BaseAdapter {
         LinearLayout row = new LinearLayout(ctx);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setPadding(0, host.dp(4), 0, host.dp(4));
+        row.setBackground(Style.round(ctx, Style.SURFACE, 14, Style.STROKE));
+        row.setPadding(host.dp(12), host.dp(10), host.dp(6), host.dp(10));
 
-        TextView name = new TextView(ctx);
-        name.setTextColor(0xFFE6E6E6);
-        name.setTextSize(12);
-        name.setTypeface(Typeface.MONOSPACE);
-        name.setPadding(0, 0, host.dp(8), 0);
+        TextView name = Style.label(ctx, "", 12.5f, Style.TEXT, true);
+        name.setLineSpacing(0, 1.05f);
         row.addView(name, new LinearLayout.LayoutParams(0,
                 ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
 
         EditText value = new EditText(ctx);
-        value.setTextColor(0xFFFFD54F);
-        value.setTextSize(12);
+        value.setTextColor(Style.VALUE);
+        value.setTextSize(12.5f);
         value.setTypeface(Typeface.MONOSPACE);
         value.setSingleLine(true);
+        value.setIncludeFontPadding(false);
+        value.setGravity(Gravity.CENTER);
+        value.setPadding(host.dp(6), host.dp(7), host.dp(6), host.dp(7));
+        value.setBackground(Style.round(ctx, Style.SURFACE_HI, 10, Style.STROKE));
         // commit on blur: the row may be recycled for another flag before the next Apply
         value.setOnFocusChangeListener((v, hasFocus) -> {
             if (hasFocus) return;
@@ -97,22 +96,23 @@ final class FlagAdapter extends BaseAdapter {
                 host.onRowValue((String) key, ((EditText) v).getText().toString().trim());
             }
         });
-        value.setBackgroundTintList(ColorStateList.valueOf(0xFF33333C));
-        row.addView(value, new LinearLayout.LayoutParams(host.dp(96),
-                ViewGroup.LayoutParams.WRAP_CONTENT));
+        LinearLayout.LayoutParams valueLp =
+                new LinearLayout.LayoutParams(host.dp(92), ViewGroup.LayoutParams.WRAP_CONTENT);
+        valueLp.leftMargin = host.dp(8);
+        row.addView(value, valueLp);
 
-        Button del = new Button(ctx);
-        del.setText("✕");
-        del.setTextSize(12);
-        del.setTextColor(0xFFFF6E6E);
-        del.setBackgroundColor(Color.TRANSPARENT);
-        del.setPadding(0, 0, 0, 0);
+        TextView del = Style.label(ctx, "✕", 14, Style.DANGER, true);
+        del.setGravity(Gravity.CENTER);
+        del.setBackground(Style.ripple(ctx, Style.round(ctx, 0x00000000, 17), 17));
+        del.setClickable(true);
         del.setOnClickListener(v -> {
             Object key = ((EditText) row.getChildAt(1)).getTag();
             if (key instanceof String) host.onDeleteFlag((String) key);
         });
-        row.addView(del, new LinearLayout.LayoutParams(host.dp(38),
-                ViewGroup.LayoutParams.WRAP_CONTENT));
+        LinearLayout.LayoutParams delLp =
+                new LinearLayout.LayoutParams(host.dp(34), host.dp(34));
+        delLp.leftMargin = host.dp(4);
+        row.addView(del, delLp);
         return row;
     }
 }

@@ -20,9 +20,8 @@ import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.Button;
-import android.widget.RadioButton;
-import android.widget.RadioGroup;
 import android.widget.EditText;
+import android.widget.GridLayout;
 import android.widget.ImageView;
 import android.widget.BaseAdapter;
 import android.widget.LinearLayout;
@@ -75,7 +74,10 @@ public class MainActivity extends Activity implements FlagAdapter.Host {
     private final List<String> visibleKeys = new ArrayList<>();
     private TextView status;
     private EditText search;
-    private RadioGroup targets;
+    private TextView count;
+    private TextView tabRoblox;
+    private TextView tabVng;
+    private int target = 1;
     private AlertDialog jsonDialog;
     private EditText jsonBox;
     private String channelState = "";
@@ -96,6 +98,8 @@ public class MainActivity extends Activity implements FlagAdapter.Host {
     protected void onCreate(Bundle b) {
         super.onCreate(b);
         profile = DeviceProfile.of(this);
+        getWindow().setStatusBarColor(Style.BG);
+        getWindow().setNavigationBarColor(Style.BG);
         setContentView(buildUi());
         getWindow().setSoftInputMode(
                 android.view.WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN);
@@ -141,53 +145,46 @@ public class MainActivity extends Activity implements FlagAdapter.Host {
     private View buildUi() {
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setBackgroundColor(BG);
-        root.setPadding(dp(14), dp(18), dp(14), dp(10));
+        root.setBackgroundColor(Style.BG);
+        root.setPadding(dp(14), dp(18), dp(14), dp(6));
 
-        LinearLayout header = new LinearLayout(this);
-        header.setOrientation(LinearLayout.HORIZONTAL);
-        header.setGravity(Gravity.CENTER_VERTICAL);
+        root.addView(headerCard());
 
-        ImageView logo = new ImageView(this);
-        logo.setImageResource(R.drawable.ic_launcher_foreground);
-        header.addView(logo, new LinearLayout.LayoutParams(dp(44), dp(44)));
-
-        TextView title = new TextView(this);
-        title.setText("FFlag Studio");
-        title.setTextColor(TEXT);
-        title.setTextSize(24);
-        title.setTypeface(Typeface.DEFAULT_BOLD);
-        header.addView(title);
-        root.addView(header);
-
-        status = new TextView(this);
-        status.setTextColor(DIM);
-        status.setTextSize(12);
-        status.setPadding(0, dp(4), 0, dp(10));
-        root.addView(status);
-
-        LinearLayout buttons = new LinearLayout(this);
-        buttons.setOrientation(LinearLayout.HORIZONTAL);
-        buttons.addView(button("Add", v -> addDialog()));
-        buttons.addView(button("Preset", v -> presetDialog()));
-        buttons.addView(button("JSON", v -> jsonDialog()));
-        root.addView(buttons);
-
-        LinearLayout buttons2 = new LinearLayout(this);
-        buttons2.setOrientation(LinearLayout.HORIZONTAL);
-        buttons2.addView(button("Clear all", v -> clearAll()));
-        buttons2.addView(button("Apply", v -> apply()));
-        buttons2.addView(button("Update", v -> checkUpdate(true)));
-        root.addView(buttons2);
+        GridLayout actions = new GridLayout(this);
+        actions.setColumnCount(3);
+        actions.setRowCount(2);
+        actions.setUseDefaultMargins(false);
+        String[][] labels = {{"Add", "Preset", "JSON"}, {"Clear all", "Update", "Apply"}};
+        View.OnClickListener[][] clicks = {
+                {v -> addDialog(), v -> presetDialog(), v -> jsonDialog()},
+                {v -> clearAll(), v -> checkUpdate(true), v -> apply()}};
+        for (int r = 0; r < 2; r++) {
+            for (int c = 0; c < 3; c++) {
+                TextView b = Style.pill(this, labels[r][c], r == 1 && c == 2);
+                b.setOnClickListener(clicks[r][c]);
+                GridLayout.LayoutParams lp =
+                        new GridLayout.LayoutParams(GridLayout.spec(r), GridLayout.spec(c, 1f));
+                lp.width = 0;
+                lp.height = dp(42);
+                int m = dp(3);
+                lp.setMargins(m, m, m, m);
+                b.setLayoutParams(lp);
+                actions.addView(b);
+            }
+        }
+        root.addView(actions, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
         search = new EditText(this);
-        search.setHint("filter");
-        search.setHintTextColor(DIM);
-        search.setTextColor(TEXT);
-        search.setTextSize(14);
+        search.setHint("Search flags");
+        search.setHintTextColor(Style.DIM);
+        search.setTextColor(Style.TEXT);
+        search.setTextSize(13);
         search.setSingleLine(true);
+        search.setIncludeFontPadding(false);
         search.setInputType(InputType.TYPE_CLASS_TEXT);
-        search.setBackgroundTintList(ColorStateList.valueOf(ACCENT));
+        search.setBackground(Style.round(this, Style.SURFACE_HI, 12, Style.STROKE));
+        search.setPadding(dp(14), dp(10), dp(14), dp(10));
         search.setOnEditorActionListener((v, a, e) -> {
             render();
             return false;
@@ -196,55 +193,34 @@ public class MainActivity extends Activity implements FlagAdapter.Host {
             render();
             return false;
         });
-        root.addView(search);
+        LinearLayout.LayoutParams searchLp =
+                new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT);
+        searchLp.topMargin = dp(12);
+        root.addView(search, searchLp);
 
-        empty = new TextView(this);
-        empty.setTextColor(DIM);
-        empty.setPadding(0, dp(12), 0, 0);
+        root.addView(metaRow());
+
+        empty = Style.label(this, "", 12.5f, Style.DIM, false);
+        empty.setGravity(Gravity.CENTER);
+        empty.setPadding(0, dp(34), 0, dp(8));
         root.addView(empty);
 
-        // ListView recycles row views: a 1300-flag set no longer builds 1300 EditTexts
         list = new ListView(this);
-        list.setDivider(null);
-        list.setDividerHeight(0);
+        list.setDivider(new android.graphics.drawable.ColorDrawable(Style.BG));
+        list.setDividerHeight(dp(6));
         list.setSelector(android.R.color.transparent);
+        list.setClipToPadding(false);
+        list.setPadding(0, dp(2), 0, dp(10));
         adapter = new FlagAdapter(this, this);
         list.setAdapter(adapter);
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f);
-        lp.topMargin = dp(8);
-        root.addView(list, lp);
+        LinearLayout.LayoutParams listLp =
+                new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f);
+        listLp.topMargin = dp(6);
+        root.addView(list, listLp);
 
-        TextView targetLabel = new TextView(this);
-        targetLabel.setText("apply to");
-        targetLabel.setTextColor(DIM);
-        targetLabel.setTextSize(12);
-        targetLabel.setPadding(0, dp(6), 0, dp(2));
-        root.addView(targetLabel);
-
-        targets = new RadioGroup(this);
-        targets.setOrientation(RadioGroup.HORIZONTAL);
-        String[] labels = {"Roblox", "VNG"};
-        for (int i = 0; i < labels.length; i++) {
-            RadioButton rb = new RadioButton(this);
-            rb.setId(i + 1);
-            rb.setText(labels[i]);
-            rb.setTextColor(DIM);
-            rb.setTextSize(12);
-            rb.setButtonTintList(ColorStateList.valueOf(ACCENT));
-            targets.addView(rb, new LinearLayout.LayoutParams(0,
-                    ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-        }
-        SharedPreferences prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
-        int saved = prefs.getInt("target", 1);
-        targets.check(saved >= 1 && saved <= labels.length ? saved : 1);
-        targets.setOnCheckedChangeListener((group, checked) ->
-                prefs.edit().putInt("target", checked).apply());
-        root.addView(targets);
-
-        footer = new TextView(this);
-        footer.setTextColor(0xFF6E6E78);
-        footer.setTextSize(11);
+        footer = Style.label(this, "", 10.5f, 0xFF6C6C7A, false);
+        footer.setPadding(0, dp(6), 0, 0);
         footer.setOnClickListener(v -> {
             if (pendingUpdate != null) installUpdate();
         });
@@ -253,18 +229,91 @@ public class MainActivity extends Activity implements FlagAdapter.Host {
         return root;
     }
 
-    private Button button(String label, View.OnClickListener onClick) {
-        Button b = new Button(this);
-        b.setText(label);
-        b.setAllCaps(false);
-        b.setTextSize(14);
-        b.setTextColor(TEXT);
-        b.setBackgroundTintList(ColorStateList.valueOf(CARD));
-        b.setOnClickListener(onClick);
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, dp(44), 1f);
-        lp.rightMargin = dp(6);
-        b.setLayoutParams(lp);
-        return b;
+    /** Logo, title, live status line and the build chip. */
+    private View headerCard() {
+        LinearLayout card = new LinearLayout(this);
+        card.setOrientation(LinearLayout.HORIZONTAL);
+        card.setGravity(Gravity.CENTER_VERTICAL);
+        card.setBackground(Style.round(this, Style.SURFACE, 18, Style.STROKE));
+        card.setPadding(dp(12), dp(12), dp(12), dp(12));
+
+        ImageView logo = new ImageView(this);
+        logo.setImageResource(R.drawable.ic_launcher_foreground);
+        card.addView(logo, new LinearLayout.LayoutParams(dp(34), dp(34)));
+
+        LinearLayout texts = new LinearLayout(this);
+        texts.setOrientation(LinearLayout.VERTICAL);
+        texts.setPadding(dp(12), 0, dp(8), 0);
+        texts.addView(Style.label(this, "FFlag Studio", 19, Style.TEXT, true));
+        status = Style.label(this, "", 11.5f, Style.STATUS, false);
+        LinearLayout.LayoutParams statusLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        statusLp.topMargin = dp(3);
+        texts.addView(status, statusLp);
+        card.addView(texts, new LinearLayout.LayoutParams(0,
+                ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+
+        TextView chip = Style.label(this, "v" + versionName(), 10.5f, Style.ACCENT_TEXT, true);
+        chip.setBackground(Style.round(this, Style.ACCENT_SOFT, 9));
+        chip.setPadding(dp(9), dp(5), dp(9), dp(5));
+        card.addView(chip);
+
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        lp.bottomMargin = dp(2);
+        card.setLayoutParams(lp);
+        return card;
+    }
+
+    /** apply-to segmented control on the left, visible/total counter on the right. */
+    private View metaRow() {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(0, dp(12), 0, dp(2));
+
+        SharedPreferences prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
+        target = prefs.getInt("target", 1);
+        if (target < 1 || target > 2) target = 1;
+
+        LinearLayout seg = new LinearLayout(this);
+        seg.setOrientation(LinearLayout.HORIZONTAL);
+        seg.setBackground(Style.round(this, Style.SURFACE_HI, 11, Style.STROKE));
+        seg.setPadding(dp(3), dp(3), dp(3), dp(3));
+        tabRoblox = tab("Roblox", 1);
+        tabVng = tab("VNG", 2);
+        seg.addView(tabRoblox);
+        seg.addView(tabVng);
+        row.addView(seg);
+
+        count = Style.label(this, "", 11, Style.DIM, false);
+        count.setGravity(Gravity.END);
+        row.addView(count, new LinearLayout.LayoutParams(0,
+                ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+
+        styleTabs();
+        return row;
+    }
+
+    private TextView tab(String text, int which) {
+        TextView t = Style.label(this, text, 11.5f, Style.DIM, true);
+        t.setGravity(Gravity.CENTER);
+        t.setPadding(dp(15), dp(6), dp(15), dp(6));
+        t.setOnClickListener(v -> {
+            target = which;
+            getSharedPreferences(PREFS, MODE_PRIVATE).edit().putInt("target", which).apply();
+            styleTabs();
+        });
+        return t;
+    }
+
+    private void styleTabs() {
+        TextView[] tabs = {tabRoblox, tabVng};
+        for (int i = 0; i < tabs.length; i++) {
+            boolean on = target == i + 1;
+            tabs[i].setTextColor(on ? 0xFFFFFFFF : Style.DIM);
+            tabs[i].setBackground(Style.round(this, on ? Style.ACCENT : 0x00000000, 9));
+        }
     }
 
     /** Shown in the footer and in every failure report, so a screenshot identifies the build. */
@@ -378,7 +427,10 @@ public class MainActivity extends Activity implements FlagAdapter.Host {
         }
         adapter.notifyDataSetChanged();
         empty.setVisibility(visibleKeys.isEmpty() ? View.VISIBLE : View.GONE);
-        empty.setText(flags.isEmpty() ? "no flags yet — Add, Preset or JSON" : "no match");
+        empty.setText(flags.isEmpty()
+                ? "No flags yet.\nUse Add, Preset or JSON to start."
+                : "No flag matches that search.");
+        if (count != null) count.setText(visibleKeys.size() + " / " + flags.size());
     }
 
     // ---- FlagAdapter.Host ----
@@ -569,6 +621,9 @@ public class MainActivity extends Activity implements FlagAdapter.Host {
                 } catch (Throwable t) {
                     msg += " · restart failed: " + brief(t);
                 }
+                if (msg.contains("exited")) {
+                    msg += " — your set may be crashing it: Clear all + Apply resets it";
+                }
                 final String done = msg;
                 ui.post(() -> {
                     setStatus(done);
@@ -617,35 +672,41 @@ public class MainActivity extends Activity implements FlagAdapter.Host {
     }
 
     private String selectedTarget() {
-        int checked = targets == null ? 1 : targets.getCheckedRadioButtonId();
-        return TARGET_KEYS[Math.max(0, Math.min(TARGET_KEYS.length - 1, checked - 1))];
+        return TARGET_KEYS[Math.max(0, Math.min(TARGET_KEYS.length - 1, target - 1))];
     }
 
-    /** Restarts the selected client (the file itself is shared by both). */
+    /**
+     * Restarts the selected client. Two things matter here: let the force-stop finish (a start
+     * during teardown can be dropped) and launch through the launcher activity, not the private
+     * splash component. Then check the process is still there — if it died, the caller says so
+     * instead of leaving a mysterious "App info" screen.
+     */
     private String restartClients(String target) throws Exception {
         StringBuilder done = new StringBuilder();
         for (String pkg : PKGS) {
             if (!pkg.equals(target)) continue;
             if (!ShizukuShell.run("pm list packages " + pkg).contains("package:" + pkg)) {
-                done.append(done.length() == 0 ? "" : " + ").append(shortName(pkg)).append(": not installed");
+                done.append(done.length() == 0 ? "" : " + ")
+                        .append(shortName(pkg)).append(": not installed");
                 continue;
             }
-            String act = "";
-            try {
-                act = lastLine(ShizukuShell.run("cmd package resolve-activity --brief " + pkg));
-            } catch (Throwable ignored) {
-                // some builds/roms exit 1 with no output here; the launcher intent below still works
-            }
             ShizukuShell.run("am force-stop " + pkg);
-            if (act.contains("/")) {
-                ShizukuShell.run("am start -n " + act);
-            } else {
-                ShizukuShell.run("am start -a android.intent.action.MAIN"
-                        + " -c android.intent.category.LAUNCHER -p " + pkg);
+            for (int i = 0; i < 12
+                    && !ShizukuShell.run("pidof " + pkg + " || true").trim().isEmpty(); i++) {
+                Thread.sleep(200);
             }
-            done.append(done.length() == 0 ? "" : " + ").append(shortName(pkg));
+            String out = ShizukuShell.run("am start -W -a android.intent.action.MAIN"
+                    + " -c android.intent.category.LAUNCHER -p " + pkg);
+            if (out.contains("Error")) {
+                throw new IllegalStateException(shortName(pkg) + " did not start: " + lastLine(out));
+            }
+            Thread.sleep(3000);
+            boolean alive = !ShizukuShell.run("pidof " + pkg + " || true").trim().isEmpty();
+            if (done.length() > 0) done.append(" + ");
+            done.append(alive ? "restarted " : "").append(shortName(pkg));
+            if (!alive) done.append(": started, then exited (crash?)");
         }
-        return done.length() == 0 ? "" : "restarted " + done;
+        return done.toString();
     }
 
     private static String shortName(String pkg) {
