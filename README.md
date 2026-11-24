@@ -97,8 +97,8 @@ If the client closes right after starting, the status says `started, then exited
 | `apply to` | `Roblox` / `VNG` — both read the same file, this picks what gets restarted |
 | `✕` on a row | Removes that flag (autosaved, not written until Apply) |
 
-Boolean flags (`FFlag` / `DFFlag`) show a **switch** instead of a text field: tap to flip it, and
-the change is committed like any other edit — nothing reaches the client until `Apply`.
+Boolean flags (`FFlag` / `DFFlag`) show an **ON / OFF pill** instead of a text field: tap it to
+flip, and the change is committed like any other edit — nothing reaches the client until `Apply`.
 
 Flags are read by the client **at startup**, which is why Apply restarts it. A failed restart never
 hides a successful write.

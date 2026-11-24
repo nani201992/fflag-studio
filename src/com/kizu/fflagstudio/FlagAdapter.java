@@ -1,7 +1,6 @@
 package com.kizu.fflagstudio;
 
 import android.content.Context;
-import android.content.res.ColorStateList;
 import android.graphics.Typeface;
 import android.view.Gravity;
 import android.view.View;
@@ -9,12 +8,11 @@ import android.view.ViewGroup;
 import android.widget.BaseAdapter;
 import android.widget.EditText;
 import android.widget.LinearLayout;
-import android.widget.Switch;
 import android.widget.TextView;
 
 /**
  * Recycled row list: only the visible flags hold views, so a 1300-flag set scrolls like a
- * 10-flag one. Children by index: 0 name, 1 value field, 2 toggle, 3 delete.
+ * 10-flag one. Children by index: 0 name, 1 value field, 2 ON/OFF toggle, 3 delete.
  */
 final class FlagAdapter extends BaseAdapter {
 
@@ -40,7 +38,7 @@ final class FlagAdapter extends BaseAdapter {
         this.host = host;
     }
 
-    /** FFlag/DFFlag are booleans, so they get a switch instead of a text field. */
+    /** FFlag/DFFlag are booleans, so they get an ON/OFF pill instead of a text field. */
     static boolean isBoolean(String key) {
         return key.startsWith("FFlag") || key.startsWith("DFFlag");
     }
@@ -72,26 +70,29 @@ final class FlagAdapter extends BaseAdapter {
         ((TextView) row.getChildAt(0)).setText(key);
 
         EditText field = (EditText) row.getChildAt(1);
-        Switch toggle = (Switch) row.getChildAt(2);
+        TextView toggle = (TextView) row.getChildAt(2);
         if (isBoolean(key)) {
             field.setVisibility(View.GONE);
             toggle.setVisibility(View.VISIBLE);
             toggle.setTag(key);
-            // a recycled row must not report the previous flag's state
-            toggle.setOnCheckedChangeListener(null);
-            toggle.setChecked(!"false".equalsIgnoreCase(value));
-            toggle.setOnCheckedChangeListener((b, checked) -> {
-                Object k = b.getTag();
-                if (k instanceof String) host.onRowValue((String) k, checked ? "true" : "false");
-            });
+            // a recycled row must not carry the previous flag's state
+            paintToggle(toggle, !"false".equalsIgnoreCase(value));
         } else {
-            toggle.setOnCheckedChangeListener(null);
             toggle.setVisibility(View.GONE);
             field.setVisibility(View.VISIBLE);
             field.setTag(key);
             field.setText(value);
         }
         return row;
+    }
+
+    /** A switch widget hides its state in the thumb; the pill says it outright. */
+    private void paintToggle(TextView t, boolean on) {
+        t.setActivated(on);
+        t.setText(on ? "ON" : "OFF");
+        t.setTextColor(on ? 0xFFFFFFFF : Style.DIM);
+        t.setBackground(Style.ripple(ctx, Style.round(ctx, on ? Style.ACCENT : Style.SURFACE_HI,
+                15, on ? Style.ACCENT : Style.STROKE), 15));
     }
 
     private LinearLayout buildRow() {
@@ -128,20 +129,20 @@ final class FlagAdapter extends BaseAdapter {
         valueLp.leftMargin = host.dp(8);
         row.addView(value, valueLp);
 
-        Switch toggle = new Switch(ctx);
-        toggle.setShowText(false);
-        toggle.setMinHeight(0);
-        toggle.setMinimumHeight(0);
-        toggle.setPadding(0, 0, 0, 0);
-        toggle.setThumbTintList(new ColorStateList(
-                new int[][]{{android.R.attr.state_checked}, {}},
-                new int[]{Style.ACCENT, 0xFF6C6C7A}));
-        toggle.setTrackTintList(new ColorStateList(
-                new int[][]{{android.R.attr.state_checked}, {}},
-                new int[]{0xFF3B2F66, Style.SURFACE_HI}));
+        TextView toggle = Style.label(ctx, "OFF", 10.5f, Style.DIM, true);
+        toggle.setGravity(Gravity.CENTER);
+        toggle.setClickable(true);
         toggle.setVisibility(View.GONE);
-        LinearLayout.LayoutParams toggleLp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        paintToggle(toggle, false);
+        toggle.setOnClickListener(v -> {
+            Object key = v.getTag();
+            if (!(key instanceof String)) return;
+            boolean on = !v.isActivated();
+            paintToggle((TextView) v, on);
+            host.onRowValue((String) key, on ? "true" : "false");
+        });
+        LinearLayout.LayoutParams toggleLp =
+                new LinearLayout.LayoutParams(host.dp(58), host.dp(30));
         toggleLp.leftMargin = host.dp(8);
         row.addView(toggle, toggleLp);
 
