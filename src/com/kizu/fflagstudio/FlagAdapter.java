@@ -12,7 +12,7 @@ import android.widget.TextView;
 
 /**
  * Recycled row list: only the visible flags hold views, so a 1300-flag set scrolls like a
- * 10-flag one. Children by index: 0 name, 1 value field, 2 ON/OFF toggle, 3 delete.
+ * 10-flag one. Children by index: 0 name, 1 value field, 2 true/false toggle, 3 delete.
  */
 final class FlagAdapter extends BaseAdapter {
 
@@ -38,7 +38,7 @@ final class FlagAdapter extends BaseAdapter {
         this.host = host;
     }
 
-    /** FFlag/DFFlag are booleans, so they get an ON/OFF pill instead of a text field. */
+    /** FFlag/DFFlag are booleans, so they get a true/false pill instead of a text field. */
     static boolean isBoolean(String key) {
         return key.startsWith("FFlag") || key.startsWith("DFFlag");
     }
@@ -86,10 +86,10 @@ final class FlagAdapter extends BaseAdapter {
         return row;
     }
 
-    /** A switch widget hides its state in the thumb; the pill says it outright. */
+    /** A switch widget hides its state in the thumb; the pill spells the stored value out. */
     private void paintToggle(TextView t, boolean on) {
         t.setActivated(on);
-        t.setText(on ? "ON" : "OFF");
+        t.setText(on ? "true" : "false");
         t.setTextColor(on ? 0xFFFFFFFF : Style.DIM);
         t.setBackground(Style.ripple(ctx, Style.round(ctx, on ? Style.ACCENT : Style.SURFACE_HI,
                 15, on ? Style.ACCENT : Style.STROKE), 15));
@@ -129,7 +129,7 @@ final class FlagAdapter extends BaseAdapter {
         valueLp.leftMargin = host.dp(8);
         row.addView(value, valueLp);
 
-        TextView toggle = Style.label(ctx, "OFF", 10.5f, Style.DIM, true);
+        TextView toggle = Style.label(ctx, "false", 10.5f, Style.DIM, true);
         toggle.setGravity(Gravity.CENTER);
         toggle.setClickable(true);
         toggle.setVisibility(View.GONE);
@@ -142,7 +142,7 @@ final class FlagAdapter extends BaseAdapter {
             host.onRowValue((String) key, on ? "true" : "false");
         });
         LinearLayout.LayoutParams toggleLp =
-                new LinearLayout.LayoutParams(host.dp(58), host.dp(30));
+                new LinearLayout.LayoutParams(host.dp(66), host.dp(30));
         toggleLp.leftMargin = host.dp(8);
         row.addView(toggle, toggleLp);
 
