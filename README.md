@@ -13,6 +13,7 @@
   <img alt="Android 8.0+" src="https://img.shields.io/badge/Android-8.0%2B-3ddc84">
   <img alt="No root" src="https://img.shields.io/badge/root-not%20required-4ade80">
   <img alt="arm64" src="https://img.shields.io/badge/arch-arm64-8f8f9d">
+  <a href="LICENSE"><img alt="MIT license" src="https://img.shields.io/badge/license-MIT-7c5cff"></a>
 </p>
 
 FFlag Studio edits the flag file the Roblox Android client actually reads:
@@ -228,6 +229,15 @@ rust/                      libfflagcore: parse/validate/canonicalise (+ 6 tests)
 `versionName` lives in `AndroidManifest.xml`, is shown in the header chip and the footer, and
 appears in failure reports. Each fix bumps it by 0.1 and the APK is named
 `FFlagStudio-<version>.apk`, so a screenshot always identifies the build.
+
+## License
+
+**MIT** — see [LICENSE](LICENSE). Free to use, modify, fork and redistribute, including
+commercially; keep the copyright notice and the permission text with any copy or substantial part.
+There is no warranty: flags are written to your own device at your own risk.
+
+The release APKs are covered by the same licence. Bundled third-party components keep their own
+terms (below).
 
 ## Third party
 
