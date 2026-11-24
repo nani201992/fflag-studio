@@ -1,6 +1,7 @@
 package com.kizu.fflagstudio;
 
 import android.content.Context;
+import android.content.res.ColorStateList;
 import android.graphics.Typeface;
 import android.view.Gravity;
 import android.view.View;
@@ -8,11 +9,12 @@ import android.view.ViewGroup;
 import android.widget.BaseAdapter;
 import android.widget.EditText;
 import android.widget.LinearLayout;
+import android.widget.Switch;
 import android.widget.TextView;
 
 /**
  * Recycled row list: only the visible flags hold views, so a 1300-flag set scrolls like a
- * 10-flag one. Row children by index: 0 name, 1 value, 2 delete.
+ * 10-flag one. Children by index: 0 name, 1 value field, 2 toggle, 3 delete.
  */
 final class FlagAdapter extends BaseAdapter {
 
@@ -38,6 +40,11 @@ final class FlagAdapter extends BaseAdapter {
         this.host = host;
     }
 
+    /** FFlag/DFFlag are booleans, so they get a switch instead of a text field. */
+    static boolean isBoolean(String key) {
+        return key.startsWith("FFlag") || key.startsWith("DFFlag");
+    }
+
     @Override
     public int getCount() {
         return host.flagCount();
@@ -60,10 +67,30 @@ final class FlagAdapter extends BaseAdapter {
                 : buildRow();
 
         String key = host.flagKeyAt(position);
+        String value = host.flagValue(key);
+        row.setTag(key);
         ((TextView) row.getChildAt(0)).setText(key);
-        EditText value = (EditText) row.getChildAt(1);
-        value.setTag(key);
-        value.setText(host.flagValue(key));
+
+        EditText field = (EditText) row.getChildAt(1);
+        Switch toggle = (Switch) row.getChildAt(2);
+        if (isBoolean(key)) {
+            field.setVisibility(View.GONE);
+            toggle.setVisibility(View.VISIBLE);
+            toggle.setTag(key);
+            // a recycled row must not report the previous flag's state
+            toggle.setOnCheckedChangeListener(null);
+            toggle.setChecked(!"false".equalsIgnoreCase(value));
+            toggle.setOnCheckedChangeListener((b, checked) -> {
+                Object k = b.getTag();
+                if (k instanceof String) host.onRowValue((String) k, checked ? "true" : "false");
+            });
+        } else {
+            toggle.setOnCheckedChangeListener(null);
+            toggle.setVisibility(View.GONE);
+            field.setVisibility(View.VISIBLE);
+            field.setTag(key);
+            field.setText(value);
+        }
         return row;
     }
 
@@ -101,12 +128,29 @@ final class FlagAdapter extends BaseAdapter {
         valueLp.leftMargin = host.dp(8);
         row.addView(value, valueLp);
 
+        Switch toggle = new Switch(ctx);
+        toggle.setShowText(false);
+        toggle.setMinHeight(0);
+        toggle.setMinimumHeight(0);
+        toggle.setPadding(0, 0, 0, 0);
+        toggle.setThumbTintList(new ColorStateList(
+                new int[][]{{android.R.attr.state_checked}, {}},
+                new int[]{Style.ACCENT, 0xFF6C6C7A}));
+        toggle.setTrackTintList(new ColorStateList(
+                new int[][]{{android.R.attr.state_checked}, {}},
+                new int[]{0xFF3B2F66, Style.SURFACE_HI}));
+        toggle.setVisibility(View.GONE);
+        LinearLayout.LayoutParams toggleLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        toggleLp.leftMargin = host.dp(8);
+        row.addView(toggle, toggleLp);
+
         TextView del = Style.label(ctx, "✕", 14, Style.DANGER, true);
         del.setGravity(Gravity.CENTER);
         del.setBackground(Style.ripple(ctx, Style.round(ctx, 0x00000000, 17), 17));
         del.setClickable(true);
         del.setOnClickListener(v -> {
-            Object key = ((EditText) row.getChildAt(1)).getTag();
+            Object key = row.getTag();
             if (key instanceof String) host.onDeleteFlag((String) key);
         });
         LinearLayout.LayoutParams delLp =
