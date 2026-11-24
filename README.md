@@ -39,12 +39,16 @@ then is the client restarted.
 
 ### 1. Start Shizuku
 
-Install [Shizuku](https://shizuku.rikka.app/) and start it. On Android 11+ the usual way is
-**wireless debugging**, which needs the phone on **Wi-Fi** — it does not work on mobile data.
-Rooted phones can start Shizuku directly instead.
+Install [Shizuku](https://shizuku.rikka.app/) and start it. Shizuku's own guide covers every
+method — wireless debugging, USB with a PC, or root:
+**[shizuku.rikka.app/guide/setup](https://shizuku.rikka.app/guide/setup/?night=1)**.
 
-The video above walks through it: enable Developer options → Wireless debugging → pair → start
-Shizuku, then leave Shizuku running in the background.
+On Android 11+ the usual way is **wireless debugging**, which needs the phone on **Wi-Fi** — it
+does not work on mobile data. Rooted phones can start Shizuku directly instead.
+
+The [video above](docs/tutorial.mp4) walks through the same thing on the phone this app was built
+on: enable Developer options → Wireless debugging → pair → start Shizuku, then leave Shizuku
+running in the background.
 
 ### 2. Install the app
 
@@ -145,7 +149,8 @@ list.
 ## Troubleshooting
 
 * **`Shizuku not running`** — start Shizuku, then reopen the app; it re-checks the binder on resume.
-  See the [setup video](docs/tutorial.mp4).
+  See the [setup video](docs/tutorial.mp4) or Shizuku's
+  [setup guide](https://shizuku.rikka.app/guide/setup/?night=1).
 * **Apply failed** — the dialog shows the exact command, its stderr and a probe:
   `probe: uid=2000 tmp=drwxrwx--x write=ok file=-rw-r--r-- ctx=u:r:shell:s0`. `write=denied` means
   Shizuku's uid cannot write `/data/local/tmp`; `file=` shows the existing file's mode. Press
@@ -226,5 +231,6 @@ appears in failure reports. Each fix bumps it by 0.1 and the APK is named
 ## Third party
 
 * [Shizuku](https://github.com/RikkaApps/Shizuku-API) (Apache-2.0) — privileged shell channel.
+  Setup: [guide](https://shizuku.rikka.app/guide/setup/?night=1).
 * Android build tools (`aapt2`, `d8`, `apksigner`) and the platform `android.jar`.
 * Rust crates: `jni`, `serde_json`.
