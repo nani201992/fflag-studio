@@ -67,7 +67,8 @@ running in the background.
 
 Download `FFlagStudio-<version>.apk` from the [releases page](https://github.com/nani201992/fflag-studio/releases/latest)
 and side-load it (allow "install unknown apps" for your browser/file manager). Needs Android 8.0+
-— see [Requirements](#requirements).
+— see [Requirements](#requirements). Files with an ABI suffix (`-arm64-v8a`, `-armeabi-v7a`,
+`-x86_64`, `-x86`) are the small ones the in-app updater uses; the plain name is universal.
 
 ### 3. Give it Shizuku access
 
@@ -115,9 +116,19 @@ touch them.
 ## Updates
 
 When a release newer than the installed build exists, a violet banner appears under the action row:
-`Update v0.14 ready — tap to install`. It downloads the APK and installs it through Shizuku
-(`pm install -r` as uid 2000), so no file manager is involved. The banner is hidden when you are
-current; **Update** still checks on demand and reports `vX is the latest`.
+`Update v0.14 ready — tap to install`. The banner is hidden when you are current; **Update** still
+checks on demand and reports `vX is the latest`.
+
+Each release carries a **universal APK** plus **one APK per ABI**. The updater downloads the one
+matching the device (`arm64-v8a`, `armeabi-v7a`, `x86_64`, `x86`), so an update is ~200–230 KB
+instead of ~700 KB, and installs it through Shizuku as uid 2000:
+
+1. the file is written to the app's external files dir and `pm install -r <path>` runs as uid 2000,
+   so nothing is copied through the Shizuku channel;
+2. if the shell cannot read that path, it falls back to pushing the APK as base64 over Shizuku's
+   stdin — slower, but it always works.
+
+Either way there is no "unknown sources" prompt and no file manager.
 
 ## Import rules
 
