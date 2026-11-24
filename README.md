@@ -37,6 +37,18 @@ then is the client restarted.
   <img src="docs/screenshot.png" width="360" alt="FFlag Studio with a 1394-flag set loaded">
 </p>
 
+## Requirements
+
+* Android 8.0+ (API 26), **arm64-v8a only**.
+* [Shizuku](https://shizuku.rikka.app/) installed and running, with FFlag Studio granted.
+* Roblox (`com.roblox.client`) and/or Roblox VNG (`com.roblox.client.vnggames`).
+
+The APK contains one native library, the Rust engine (`libfflagcore.so`) built for
+`aarch64-linux-android`. So it is **not a universal APK**: a 32-bit-only phone (armeabi-v7a) or an
+x86/x86_64 emulator cannot install it — the package manager rejects it with
+`INSTALL_FAILED_NO_MATCHING_ABIS`, and that is not a corrupted download. Adding those ABIs means
+cross-compiling the engine against the Android NDK for each target, which this build does not do.
+
 ## Install
 
 ### 1. Start Shizuku
@@ -55,8 +67,8 @@ running in the background.
 ### 2. Install the app
 
 Download `FFlagStudio-<version>.apk` from the [releases page](https://github.com/nani201992/fflag-studio/releases/latest)
-and side-load it (allow "install unknown apps" for your browser/file manager). Android 8.0+ and
-arm64 only.
+and side-load it (allow "install unknown apps" for your browser/file manager). Needs Android 8.0+
+on a 64-bit ARM phone — see [Requirements](#requirements).
 
 ### 3. Give it Shizuku access
 
@@ -163,6 +175,8 @@ list.
   ("Roblox keeps stopping" → **App info**), not something this app opens. Since 0.12 the restart
   waits for `am force-stop` to finish, launches through the launcher activity, and reports when the
   client exits right after starting.
+* **Install says `INSTALL_FAILED_NO_MATCHING_ABIS`** — the phone is 32-bit-only or an x86 emulator.
+  The engine is arm64-only; see [Requirements](#requirements).
 * **Update banner never appears** — you are on the latest release; press **Update** to check
   explicitly. Wireless debugging being off does not affect updates.
 * **Cleared by accident** — `Clear all` only empties the editor and nothing reaches the device until
@@ -175,7 +189,6 @@ list.
   chooses what gets restarted.
 * Restart uses the launcher activity for the package; a Roblox build with a different package id is
   written for but not restarted automatically.
-* `minSdk 26`, arm64 only (the Rust library is built for `aarch64-linux-android`).
 * Release APKs are signed with a local debug keystore.
 
 ## Build from source
