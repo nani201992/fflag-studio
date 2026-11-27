@@ -40,6 +40,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.TreeMap;
 import java.util.concurrent.ExecutorService;
@@ -47,7 +48,7 @@ import java.util.concurrent.Executors;
 
 import rikka.shizuku.Shizuku;
 
-public class MainActivity extends Activity implements FlagAdapter.Host {
+public class MainActivity extends Activity implements FlagAdapter.Host, AskAi.Host {
     private static final String FLAG_FILE = "/data/local/tmp/ClientAppSettings.json";
     private static final String[] PKGS = {"com.roblox.client", "com.roblox.client.vnggames"};
     private static final int REQ_SHIZUKU = 42;
@@ -152,6 +153,74 @@ public class MainActivity extends Activity implements FlagAdapter.Host {
         return Math.round(getResources().getDisplayMetrics().density * v);
     }
 
+    // ---------- Ask AI ----------
+
+    @Override
+    public String flagContext(String question) {
+        StringBuilder text = new StringBuilder();
+        text.append(flags.size()).append(" flags in the set; the target is ")
+                .append(target == 2 ? "Roblox VNG" : "Roblox").append('.');
+        String[] words = question.toLowerCase(Locale.US).split("[^a-z0-9]+");
+        StringBuilder hits = new StringBuilder();
+        int shown = 0;
+        for (Map.Entry<String, String> e : flags.entrySet()) {
+            String lower = e.getKey().toLowerCase(Locale.US);
+            boolean match = false;
+            for (String w : words) {
+                if (w.length() >= 4 && lower.contains(w)) {
+                    match = true;
+                    break;
+                }
+            }
+            if (!match) continue;
+            hits.append(e.getKey()).append('=').append(e.getValue()).append('\n');
+            if (++shown >= 40) break;
+        }
+        if (shown > 0) text.append("\nFlags in the set that match the question:\n").append(hits);
+        return text.toString();
+    }
+
+    @Override
+    public void aiSuggested(String json) {
+        if (!Core.available()) {
+            setStatus("no flag engine for this CPU");
+            return;
+        }
+        int ok = 0;
+        int bad = 0;
+        try {
+            JSONObject obj = new JSONObject(json);
+            for (Iterator<String> it = obj.keys(); it.hasNext(); ) {
+                String key = it.next();
+                try {
+                    JSONObject one = new JSONObject(Core.one(key, String.valueOf(obj.get(key))));
+                    for (Iterator<String> inner = one.keys(); inner.hasNext(); ) {
+                        String k = inner.next();
+                        flags.put(k, display(one.get(k)));
+                        ok++;
+                    }
+                } catch (Throwable t) {
+                    bad++;
+                }
+            }
+        } catch (Throwable t) {
+            setStatus("could not read the suggested flags");
+            return;
+        }
+        if (ok > 0) {
+            render();
+            saveDraft();
+        }
+        setStatus("AI added " + ok + " flag" + (ok == 1 ? "" : "s")
+                + (bad > 0 ? ", engine refused " + bad : "")
+                + (ok > 0 ? " — press Apply to write them" : ""));
+    }
+
+    @Override
+    public void aiStatus(String message) {
+        setStatus(message);
+    }
+
     private View buildUi() {
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
@@ -162,15 +231,15 @@ public class MainActivity extends Activity implements FlagAdapter.Host {
 
         GridLayout actions = new GridLayout(this);
         actions.setColumnCount(3);
-        actions.setRowCount(2);
+        actions.setRowCount(3);
         actions.setUseDefaultMargins(false);
-        String[][] labels = {{"Add", "Preset", "JSON"}, {"Clear all", "Update", "Apply"}};
+        String[][] labels = {{"Add", "Preset", "JSON"}, {"Ask AI", "Clear all", "Update"}};
         View.OnClickListener[][] clicks = {
                 {v -> addDialog(), v -> presetDialog(), v -> jsonDialog()},
-                {v -> clearAll(), v -> checkUpdate(true), v -> apply()}};
+                {v -> AskAi.show(this, this), v -> clearAll(), v -> checkUpdate(true)}};
         for (int r = 0; r < 2; r++) {
             for (int c = 0; c < 3; c++) {
-                TextView b = Style.pill(this, labels[r][c], r == 1 && c == 2);
+                TextView b = Style.pill(this, labels[r][c], false);
                 b.setOnClickListener(clicks[r][c]);
                 GridLayout.LayoutParams lp =
                         new GridLayout.LayoutParams(GridLayout.spec(r), GridLayout.spec(c, 1f));
@@ -182,6 +251,16 @@ public class MainActivity extends Activity implements FlagAdapter.Host {
                 actions.addView(b);
             }
         }
+        TextView applyNow = Style.pill(this, "Apply", true);
+        applyNow.setOnClickListener(v -> apply());
+        GridLayout.LayoutParams applyLp =
+                new GridLayout.LayoutParams(GridLayout.spec(2), GridLayout.spec(0, 3, 1f));
+        applyLp.width = 0;
+        applyLp.height = dp(46);
+        int am = dp(3);
+        applyLp.setMargins(am, am, am, am);
+        applyNow.setLayoutParams(applyLp);
+        actions.addView(applyNow);
         root.addView(actions, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 

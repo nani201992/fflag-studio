@@ -91,6 +91,7 @@ If the client closes right after starting, the status says `started, then exited
 | `Add` | Add one flag; key and value are validated before they enter the list |
 | `Preset` | Your saved sets: **Save current set** → name it; tap to merge it back; `✕` deletes it |
 | `JSON` | Edit the whole set as JSON; `Replace` applies the text, `.json file` loads a file |
+| `Ask AI` | One question to DeepSeek V4.1, answered from a fixed FastFlag brief — see below |
 | `Clear all` | Empties the working set; `Apply` writes an empty file |
 | `Update` | Checks GitHub for a newer release; the violet banner installs it |
 | `Apply` | Normalise → write → read back → compare → restart the selected client |
@@ -112,6 +113,30 @@ now under a name; tapping that preset later **merges** it back into your list, s
 restores a state and a small set works as an add-on without wiping anything else. Presets live in
 the app's own preferences, separate from the device file, so imports, `Clear all` and applies never
 touch them.
+
+## Ask AI
+
+**Ask AI** puts a question to DeepSeek V4.1 through OpenCode Zen and answers inside the app:
+what a flag does, why a set is behaving oddly, which keys to try.
+
+The app ships **no API key**. A key inside an APK is readable by anyone who unzips it, so instead
+you paste your own once (**Ask AI** → **Key…**). It is stored in this app's private preferences,
+never in the flag file, never in a draft, never logged. **Forget** deletes it.
+
+The answers are grounded, not free-form: the model gets a fixed brief on how FastFlag works (prefix
+decides type, `F` is read at startup and `DF` at runtime, an unprefixed key never applies, cloud
+config and `libroblox.so` are *not* validity lists, deleting a key restores the default), plus the
+slice of your current set that matches the question. It is told to say "not sure" instead of
+inventing flag names. Any flags it proposes come back as a `json` block; **Add flags** passes each
+one through the Rust engine first, so a key the engine refuses never reaches your set.
+
+Limits are enforced on the device so one tap-happy session cannot drain a key: one question every
+5 s, 8 per hour, 30 per day, with the remainder shown under the button. Server-side errors are
+reported as they are — `402` means no credits on the key, `429` means the account's free quota is
+used up.
+
+Only the question and your matching flags leave the phone; nothing is applied until you press
+**Apply**.
 
 ## Updates
 
