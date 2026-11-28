@@ -15,9 +15,12 @@ import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
 
+import java.util.List;
+
 /**
- * "Ask AI" dialog: one question, one answer, no chat history. The API key is the user's own and
- * lives in private preferences, so the question leaves the phone only to the endpoint they chose.
+ * "Ask AI" dialog: one question, one answer, no chat history. Endpoint, model and key are the
+ * user's own and live in private preferences, so the question leaves the phone only to the server
+ * they configured.
  */
 final class AskAi {
 
@@ -37,8 +40,8 @@ final class AskAi {
     }
 
     static void show(final Activity act, final Host host) {
-        if (Ai.key(act).isEmpty()) {
-            showKey(act, host);
+        if (!Ai.ready(act)) {
+            showSettings(act, host);
             return;
         }
 
@@ -59,9 +62,7 @@ final class AskAi {
         question.setPadding(host.dp(12), host.dp(10), host.dp(12), host.dp(10));
         root.addView(question);
 
-        final TextView status = Style.label(act, "model " + Ai.MODEL + " · "
-                + Ai.leftToday(act, System.currentTimeMillis()) + " of " + Ai.PER_DAY + " left today",
-                11, Style.DIM, false);
+        final TextView status = Style.label(act, quota(act), 11, Style.DIM, false);
         status.setPadding(0, host.dp(8), 0, 0);
 
         final ScrollView answerScroll = new ScrollView(act);
@@ -97,17 +98,17 @@ final class AskAi {
         row.addView(add, halfLp2);
 
         final TextView send = Style.pill(act, "Send", true);
-        final TextView keyBtn = Style.pill(act, "Key…", false);
+        final TextView setup = Style.pill(act, "Setup…", false);
         LinearLayout buttons = new LinearLayout(act);
         buttons.setOrientation(LinearLayout.HORIZONTAL);
         LinearLayout.LayoutParams sendLp = new LinearLayout.LayoutParams(0, host.dp(42), 2f);
         sendLp.topMargin = host.dp(10);
         sendLp.rightMargin = host.dp(4);
         buttons.addView(send, sendLp);
-        LinearLayout.LayoutParams keyLp = new LinearLayout.LayoutParams(0, host.dp(42), 1f);
-        keyLp.topMargin = host.dp(10);
-        keyLp.leftMargin = host.dp(4);
-        buttons.addView(keyBtn, keyLp);
+        LinearLayout.LayoutParams setupLp = new LinearLayout.LayoutParams(0, host.dp(42), 1f);
+        setupLp.topMargin = host.dp(10);
+        setupLp.leftMargin = host.dp(4);
+        buttons.addView(setup, setupLp);
         root.addView(buttons);
         root.addView(status);
         root.addView(row);
@@ -117,7 +118,6 @@ final class AskAi {
                 .setView(root)
                 .setNegativeButton("Close", null)
                 .create();
-        // setView trims long content, so let the dialog size itself against the answer area
         dlg.show();
 
         final String[] suggestion = {null};
@@ -132,9 +132,9 @@ final class AskAi {
             host.aiSuggested(suggestion[0]);
             dlg.dismiss();
         });
-        keyBtn.setOnClickListener(v -> {
+        setup.setOnClickListener(v -> {
             dlg.dismiss();
-            showKey(act, host);
+            showSettings(act, host);
         });
 
         send.setOnClickListener(v -> {
@@ -150,7 +150,7 @@ final class AskAi {
             }
             send.setEnabled(false);
             send.setText("Thinking…");
-            status.setText("asking " + Ai.MODEL + "…");
+            status.setText("asking " + Ai.model(act) + "…");
             new Thread(() -> {
                 String text = null;
                 String error = null;
@@ -173,12 +173,15 @@ final class AskAi {
                     copy.setVisibility(View.VISIBLE);
                     suggestion[0] = jsonBlock(ok);
                     add.setVisibility(suggestion[0] == null ? View.GONE : View.VISIBLE);
-                    status.setText("model " + Ai.MODEL + " · "
-                            + Ai.leftToday(act, System.currentTimeMillis())
-                            + " of " + Ai.PER_DAY + " left today");
+                    status.setText(quota(act));
                 });
             }).start();
         });
+    }
+
+    private static String quota(Activity act) {
+        return Ai.model(act) + " · " + Ai.leftToday(act, System.currentTimeMillis())
+                + " of " + Ai.PER_DAY + " left today";
     }
 
     /** The last fenced json block, or a bare {...} object, from the answer. */
@@ -201,52 +204,143 @@ final class AskAi {
         return a >= 0 && b > a ? text.substring(a, b + 1).trim() : null;
     }
 
-    private static void showKey(final Activity act, final Host host) {
+    /**
+     * Endpoint, model and key. Save applies all three; Fetch asks the typed endpoint (with the
+     * typed key) for its model list, so the fields can be tried before they are committed.
+     */
+    private static void showSettings(final Activity act, final Host host) {
         final LinearLayout root = new LinearLayout(act);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setPadding(host.dp(18), host.dp(8), host.dp(18), 0);
 
         TextView hint = Style.label(act,
-                "Paste your own OpenCode API key (opencode.ai → Zen). It is stored only on this "
-                        + "phone, in this app's private storage — no key ships with the app, because "
-                        + "anything inside an APK can be read by whoever installs it.",
+                "OpenCode Zen, OpenRouter, OpenAI, Groq or any OpenAI-compatible server. The key "
+                        + "stays on this phone in this app's private storage — none ships with the "
+                        + "app, because anything inside an APK can be read by whoever installs it.",
                 11.5f, Style.DIM, false);
         hint.setLineSpacing(0, 1.1f);
         root.addView(hint);
 
-        final EditText input = new EditText(act);
-        input.setHint("oc_sk_…");
-        input.setHintTextColor(Style.DIM);
-        input.setTextColor(Style.TEXT);
-        input.setTextSize(12.5f);
-        input.setTypeface(Typeface.MONOSPACE);
-        input.setSingleLine(true);
-        input.setText(Ai.key(act));
-        input.setBackground(Style.round(act, Style.SURFACE_HI, 10, Style.STROKE));
-        input.setPadding(host.dp(12), host.dp(10), host.dp(12), host.dp(10));
-        LinearLayout.LayoutParams inputLp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        inputLp.topMargin = host.dp(10);
-        root.addView(input, inputLp);
+        final EditText endpoint = field(act, host, root, "Endpoint",
+                "https://opencode.ai/zen/v1", Ai.endpoint(act), false);
 
-        new AlertDialog.Builder(act)
-                .setTitle("Ask AI key")
-                .setView(root)
+        caption(act, host, root, "Model id");
+        LinearLayout modelRow = new LinearLayout(act);
+        modelRow.setOrientation(LinearLayout.HORIZONTAL);
+        final EditText model = input(act, host, Ai.DEFAULT_MODEL, Ai.model(act), true);
+        LinearLayout.LayoutParams modelLp = new LinearLayout.LayoutParams(0, host.dp(40), 3f);
+        modelLp.topMargin = host.dp(4);
+        modelLp.rightMargin = host.dp(4);
+        modelRow.addView(model, modelLp);
+        final TextView fetch = Style.pill(act, "Fetch", false);
+        LinearLayout.LayoutParams fetchLp = new LinearLayout.LayoutParams(0, host.dp(40), 1f);
+        fetchLp.topMargin = host.dp(4);
+        fetchLp.leftMargin = host.dp(4);
+        modelRow.addView(fetch, fetchLp);
+        root.addView(modelRow);
+
+        final EditText key = field(act, host, root, "API key",
+                "oc_sk_… (leave empty for a local server)", Ai.key(act), true);
+
+        ScrollView wrap = new ScrollView(act);
+        wrap.addView(root);
+
+        final AlertDialog dlg = new AlertDialog.Builder(act)
+                .setTitle("Ask AI setup")
+                .setView(wrap)
                 .setPositiveButton("Save", (d, w) -> {
-                    String key = input.getText().toString().trim();
-                    if (!Ai.looksLikeKey(key)) {
+                    String k = key.getText().toString().trim();
+                    if (!Ai.looksLikeKey(k)) {
                         host.aiStatus("that does not look like an API key");
                         return;
                     }
-                    Ai.saveKey(act, key);
-                    host.aiStatus("AI key saved");
+                    boolean opencode = Ai.chatUrl(endpoint.getText().toString())
+                            .equals(Ai.chatUrl(Ai.DEFAULT_ENDPOINT));
+                    if (opencode && k.isEmpty()) {
+                        host.aiStatus("opencode needs your key");
+                        return;
+                    }
+                    Ai.saveSettings(act, endpoint.getText().toString(),
+                            model.getText().toString(), k);
+                    host.aiStatus("AI settings saved");
                     show(act, host);
                 })
-                .setNeutralButton("Forget", (d, w) -> {
-                    Ai.forgetKey(act);
-                    host.aiStatus("AI key removed");
+                .setNeutralButton("Reset", (d, w) -> {
+                    Ai.saveSettings(act, Ai.DEFAULT_ENDPOINT, Ai.DEFAULT_MODEL, "");
+                    host.aiStatus("AI settings reset");
                 })
                 .setNegativeButton("Cancel", null)
-                .show();
+                .create();
+        dlg.show();
+
+        fetch.setOnClickListener(v -> {
+            fetch.setEnabled(false);
+            fetch.setText("…");
+            new Thread(() -> {
+                List<String> ids = null;
+                String error = null;
+                try {
+                    ids = Ai.models(endpoint.getText().toString(), key.getText().toString());
+                } catch (Throwable t) {
+                    error = t.getMessage() == null ? t.toString() : t.getMessage();
+                }
+                final List<String> list = ids;
+                final String bad = error;
+                act.runOnUiThread(() -> {
+                    fetch.setEnabled(true);
+                    fetch.setText("Fetch");
+                    if (list == null) {
+                        host.aiStatus(bad);
+                        return;
+                    }
+                    if (list.isEmpty()) {
+                        host.aiStatus("the endpoint returned no models");
+                        return;
+                    }
+                    new AlertDialog.Builder(act)
+                            .setTitle(list.size() + " models — tap to use")
+                            .setItems(list.toArray(new String[0]),
+                                    (d, which) -> model.setText(list.get(which)))
+                            .setNegativeButton("Cancel", null)
+                            .show();
+                });
+            }).start();
+        });
+    }
+
+    /** Label + full-width field. */
+    private static EditText field(Activity act, Host host, LinearLayout root,
+                                  String label, String hint, String value, boolean mono) {
+        caption(act, host, root, label);
+        LinearLayout row = new LinearLayout(act);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, host.dp(40));
+        lp.topMargin = host.dp(4);
+        row.addView(input(act, host, hint, value, mono), lp);
+        root.addView(row);
+        return (EditText) row.getChildAt(0);
+    }
+
+    private static void caption(Activity act, Host host, LinearLayout root, String label) {
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        lp.topMargin = host.dp(10);
+        root.addView(Style.label(act, label, 11, Style.DIM, false), lp);
+    }
+
+    private static EditText input(Activity act, Host host, String hint, String value,
+                                  boolean mono) {
+        EditText input = new EditText(act);
+        input.setHint(hint);
+        input.setHintTextColor(Style.DIM);
+        input.setTextColor(Style.TEXT);
+        input.setTextSize(12.5f);
+        if (mono) input.setTypeface(Typeface.MONOSPACE);
+        input.setSingleLine(true);
+        input.setText(value);
+        input.setBackground(Style.round(act, Style.SURFACE_HI, 10, Style.STROKE));
+        input.setPadding(host.dp(12), host.dp(10), host.dp(12), host.dp(10));
+        return input;
     }
 }
